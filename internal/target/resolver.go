@@ -1,13 +1,11 @@
-package main
+package target
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -28,9 +26,7 @@ func extractPID(containerID string) string {
 }
 
 func resolveCgroupPath(containerID string) string {
-	out := extractPID(containerID)
-
-	f, err := os.Open(filepath.Join("/proc", string(out), "/cgroup"))
+	f, err := os.Open(filepath.Join("/proc", extractPID(containerID), "/cgroup"))
 	if err != nil {
 		// handle error
 		printErr(err)
@@ -53,35 +49,4 @@ func resolveCgroupPath(containerID string) string {
 	// clear '\n'
 	fullPath = strings.TrimSpace(fullPath)
 	return fullPath
-}
-
-func display(path string) error {
-	entries, err := os.ReadDir(path)
-	if err != nil {
-		// handle error
-		return err
-	}
-
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			// handle error
-			return err
-		}
-		fmt.Println(info.Name())
-		fmt.Println("	Mode: " + info.Mode().String())
-		fmt.Println("	Last Modified: " + info.ModTime().String())
-		fmt.Println("	Size: " + strconv.FormatInt(info.Size(), 10) + "B")
-	}
-	return nil
-}
-
-func main() {
-	containerID := flag.String("container-id", "", "docker container ID")
-	flag.Parse()
-
-	fullPath := resolveCgroupPath(*containerID)
-	// profile, _ := exec.Command("ls", "-l", fullPath).CombinedOutput()
-	// fmt.Println(string(profile))
-	_ = display(fullPath)
 }
