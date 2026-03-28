@@ -118,7 +118,7 @@ target -> collect -> model(snapshot) -> analyze -> model(finding) -> report
 
 ## 文件级速查
 
-### `cmd/ctrisk/main.go`
+### `cmd/main.go`
 
 * 入口
 
