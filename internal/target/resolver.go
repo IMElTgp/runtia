@@ -27,8 +27,13 @@ type Credentials struct {
 // Thread represents a thread
 // all the following security checks are per-thread
 type Thread struct {
-	Tid  int
-	Path string
+	Tid int
+	// thread group ID (TGID)
+	Tgid int
+	// Comm shows what the thread really is from user's perspective
+	Comm string
+	// IsMainThread shows whether the thread is the main thread of the thread group
+	IsMainThread bool
 	// check these three namespaces:
 	// 1. UserNS: check if the thread's belonging namespaces belong to the correct user ns
 	// 2. MntNS: check if the thread's belonging mnt ns has mounting issues, processed lazily to avoid repetition
@@ -93,10 +98,20 @@ func ResolveCgroupPath(containerID string) string {
 	return fullPath
 }
 
+// getComm reveals a thread's comm by reading /proc/<tid>/comm
+func getComm(tid int) string {
+	// the comm of all threads in one thread group (process) is the same
+	comm, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(tid), "comm"))
+	if err != nil {
+		return ""
+	}
+	return string(comm)
+}
+
 // RetrieveAllThreads parses /path/to/cgroup/cgroup.procs and fetch {threadPath, threadID} for all threads
 // under all procs in this cgroup (container)
-func RetrieveAllThreads(path string) (threads map[int]Thread, err error) {
-	threads = make(map[int]Thread)
+func RetrieveAllThreads(path string) (threads map[int]*Thread, err error) {
+	threads = make(map[int]*Thread)
 	// path is the cgroup path
 	procsPath := filepath.Join(path, "cgroup.procs")
 	f, err := os.Open(procsPath)
@@ -107,6 +122,10 @@ func RetrieveAllThreads(path string) (threads map[int]Thread, err error) {
 
 	var scanner = bufio.NewScanner(f)
 	for scanner.Scan() {
+		pid, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
+		if err != nil {
+			return nil, err
+		}
 		tPath := filepath.Join("/proc", scanner.Text(), "task")
 		entries, err := os.ReadDir(tPath)
 		if err != nil {
@@ -126,7 +145,7 @@ func RetrieveAllThreads(path string) (threads map[int]Thread, err error) {
 				return nil, err
 			}
 			// threads = append(threads, Thread{Tid: tid, Path: filepath.Join(tPath, e.Name())})
-			threads[tid] = Thread{Tid: tid, Path: filepath.Join(tPath, e.Name())}
+			threads[tid] = &Thread{Tid: tid, Tgid: pid, IsMainThread: tid == pid, Comm: getComm(tid)}
 		}
 	}
 	if err := scanner.Err(); err != nil {
