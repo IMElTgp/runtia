@@ -95,7 +95,8 @@ func ResolveCgroupPath(containerID string) string {
 
 // RetrieveAllThreads parses /path/to/cgroup/cgroup.procs and fetch {threadPath, threadID} for all threads
 // under all procs in this cgroup (container)
-func RetrieveAllThreads(path string) (threads []Thread, err error) {
+func RetrieveAllThreads(path string) (threads map[int]Thread, err error) {
+	threads = make(map[int]Thread)
 	// path is the cgroup path
 	procsPath := filepath.Join(path, "cgroup.procs")
 	f, err := os.Open(procsPath)
@@ -124,7 +125,8 @@ func RetrieveAllThreads(path string) (threads []Thread, err error) {
 			if err != nil {
 				return nil, err
 			}
-			threads = append(threads, Thread{Tid: tid, Path: filepath.Join(tPath, e.Name())})
+			// threads = append(threads, Thread{Tid: tid, Path: filepath.Join(tPath, e.Name())})
+			threads[tid] = Thread{Tid: tid, Path: filepath.Join(tPath, e.Name())}
 		}
 	}
 	if err := scanner.Err(); err != nil {
