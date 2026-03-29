@@ -21,7 +21,8 @@ type Cap struct {
 // transform hex string to uint64 value
 func hexStrToUint64(hex string) (mask uint64) {
 	for i := 0; i < len(hex); i++ {
-		// iterate all bits backwards
+		mask <<= 4
+		// iterate all bits
 		if hex[i] >= 'a' {
 			if hex[i] > 'f' {
 				// this may not happen
@@ -31,7 +32,6 @@ func hexStrToUint64(hex string) (mask uint64) {
 		} else {
 			mask += uint64(hex[i] - '0')
 		}
-		mask <<= 4
 	}
 	return
 }
