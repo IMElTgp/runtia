@@ -20,7 +20,7 @@ type Cap struct {
 
 // transform hex string to uint64 value
 func hexStrToUint64(hex string) (mask uint64) {
-	for i := len(hex) - 1; i >= 0; i-- {
+	for i := 0; i < len(hex); i++ {
 		// iterate all bits backwards
 		if hex[i] >= 'a' {
 			if hex[i] > 'f' {
