@@ -1,6 +1,8 @@
 package collect
 
 import (
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -64,9 +66,29 @@ type MountInfo struct {
 	SuperOptions []string
 }
 
+func getMountinfoPath(thread *target.Thread) string {
+	return filepath.Join("/proc", strconv.Itoa(thread.Tgid), "task", strconv.Itoa(thread.Tid), "mountinfo")
+}
+
+func foundSeparator(line string) (index int) {
+	for i := range line {
+		if i < len(line)-1 && i > 0 && line[i-1] == ' ' && line[i+1] == ' ' && line[i] == '-' {
+			return i
+		}
+	}
+	// never found, but should not happen
+	return -1
+}
+
 func parseOneLine(line string) (info MountInfo) {
+	if len(line) == 0 {
+		return MountInfo{RawLine: ""}
+	}
 	// separator: -
-	before, after, _ := strings.Cut(line, "-")
+	// in case there are additional hyphens('-') apart from the separator
+	separatorIdx := foundSeparator(line)
+	before, after := line[:separatorIdx], line[separatorIdx+1:]
+
 	beforeParts := strings.Fields(strings.TrimSpace(before))
 	afterParts := strings.Fields(strings.TrimSpace(after))
 	info.RawLine = line
@@ -81,7 +103,10 @@ func parseOneLine(line string) (info MountInfo) {
 	info.MountPoint = beforeParts[4]
 
 	info.MountOptions = strings.Split(beforeParts[5], ",")
-	info.OptionalFields = strings.Fields(beforeParts[6])
+	// info.OptionalFields = strings.Fields(beforeParts[6])
+	for i := 6; i < len(beforeParts); i++ {
+		info.OptionalFields = append(info.OptionalFields, strings.TrimSpace(beforeParts[i]))
+	}
 
 	info.FStype = afterParts[0]
 	info.MountSource = afterParts[1]
@@ -91,12 +116,22 @@ func parseOneLine(line string) (info MountInfo) {
 
 func parseMountInfo(fileContent string) (infos []MountInfo) {
 	for line := range strings.SplitSeq(fileContent, "\n") {
-		infos = append(infos, parseOneLine(line))
+		if mountinfo := parseOneLine(line); mountinfo.RawLine != "" {
+			infos = append(infos, mountinfo)
+		}
 	}
 	return
 }
 
-func ClctMountInfo(threads map[int]*target.Thread) error {
+func ClctMountInfo() error {
 	// TODO: parse all namespaces of all threads first and then collect one mountinfo per mnt ns
+	for MntNSs := range MntNSThreads {
+		// take one thread sample for each mnt namespace
+		fileContent, err := os.ReadFile(getMountinfoPath(MntNSThreads[MntNSs][0]))
+		if err != nil {
+			return err
+		}
+		MntNSInfo[MntNSs] = parseMountInfo(string(fileContent))
+	}
 	return nil
 }
