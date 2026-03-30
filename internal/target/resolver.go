@@ -14,7 +14,6 @@ import (
 type NSRef struct {
 	Type     string // user/mnt/pid/etc...
 	Dev, Ino uint64 // unique identifier of a namespace, got from os.Stat(path)
-	Link     string // for example, mnt:[4026531840]
 }
 
 // Credentials are parsed from /proc/<pid>/task/<tid>/status, showing UIDs and GIDs, which indicate the
