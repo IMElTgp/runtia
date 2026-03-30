@@ -23,9 +23,7 @@ var (
 
 // getOwnerUserNS fetches a non-user namespace's belonging user ns and records that into OwnerUserNSByNS
 func getOwnerUserNS(nsfd int, nsType string) error {
-	// pass nsfd directly to avoid race condition: THE PATH ISN'T SURE IN CONCURRENT CONDITIONS
-	// because the kernel is highly concurrent
-	// if nsPath is passed as argument and os.Stat is called to parse st, changes of thread's (ns) path may cause bugs
+	// pass nsfd directly to avoid race condition: fd won't change on path deleting or redirecting; passing fd avoids path-based TOCTOU
 	userfd, err := unix.IoctlRetInt(nsfd, unix.NS_GET_USERNS)
 	if err != nil {
 		return err
