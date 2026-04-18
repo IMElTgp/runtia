@@ -124,7 +124,6 @@ func parseMountInfo(fileContent string) (infos []MountInfo) {
 }
 
 func ClctMountInfo() error {
-	// TODO: parse all namespaces of all threads first and then collect one mountinfo per mnt ns
 	for MntNSs := range MntNSThreads {
 		// take one thread sample for each mnt namespace
 		fileContent, err := os.ReadFile(getMountinfoPath(MntNSThreads[MntNSs][0]))

@@ -10,6 +10,6 @@ type Finding struct {
 	Evidence        []string
 	RelativeThreads []*target.Thread
 	RelativeNS      *target.NSRef
-	MountPoint      string
+	MountPoint      []string
 	Recommendation  string
 }

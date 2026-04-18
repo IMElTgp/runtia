@@ -137,7 +137,7 @@ func RetrieveAllThreads(path string) (threads map[int]*Thread, err error) {
 		}
 		for _, e := range entries {
 			if !e.IsDir() {
-				return nil, fmt.Errorf("target/resolver.go: RetrieveAllThreads: non-directory file in " + tPath)
+				return nil, fmt.Errorf("target/resolver.go: RetrieveAllThreads: non-directory file in %s", tPath)
 			}
 			tid, err := strconv.Atoi(e.Name())
 			if err != nil {
