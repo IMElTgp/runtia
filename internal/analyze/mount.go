@@ -3,6 +3,7 @@ package analyze
 import (
 	"github.com/IMElTgp/container-runtime-analysis/internal/collect"
 	"github.com/IMElTgp/container-runtime-analysis/internal/model"
+	"github.com/IMElTgp/container-runtime-analysis/internal/util"
 )
 
 /**
@@ -36,10 +37,9 @@ import (
 // trie is for longest prefix matching in writable path judgment
 // all nodes are mount points
 type trie struct {
-	// TODO
 	DirName    string
 	Children   map[string]*trie
-	MountInfos []*collect.MountInfo
+	MountInfos []*collect.MountInfo // nil for internal nodes that are not mount points
 }
 
 // mntNode represents the mounting tree node
@@ -104,13 +104,91 @@ func buildMntTree(mntns *model.NamespaceSnapshot) (nodes []*mntNode) {
 
 // buildTrie builds one trie according to all the mount points documented in MountInfo
 func buildTrie(mntns *model.NamespaceSnapshot) *trie {
-	// TODO
-	return nil
+	if mntns == nil {
+		return nil
+	}
+
+	mountPoints := make(map[string][]*collect.MountInfo)
+	// 1. scan all mountinfos and record all mount points (strings)
+	// 2. for those mount points (strings), record their mount entries ([]*MountInfo)
+	for i := range mntns.MountInfo {
+		info := &mntns.MountInfo[i]
+		mountPoints[info.MountPoint] = append(mountPoints[info.MountPoint], info)
+	}
+
+	// 3. split all mount points into different levels of paths (e.g. /proc/sys -> / + /proc + /proc/sys)
+	trieNodes := make(map[string]*trie)
+	for path, _ := range mountPoints {
+		for _, level := range util.SplitPathLevels(path) {
+			if _, ok := trieNodes[level]; ok {
+				continue // to avoid repeating creating trie node
+			}
+			trieNodes[level] = &trie{level, make(map[string]*trie), mountPoints[level]}
+		}
+	}
+	// 4. build a trie out of those paths (in which non-mount-point paths own nil MountInfos)
+	for path := range trieNodes {
+		if path == "/" {
+			continue
+		}
+		parent := util.BackToLastLevel(path)
+		trieNodes[parent].Children[path] = trieNodes[path]
+		// no need for recursion; previous util.SplitPathLevels call promises
+		// full path link covery
+	}
+
+	return trieNodes["/"]
 }
 
-// judge whether some vital paths are writable
-func (t *trie) judgeVitalPathWritable(vitalPaths []string) []*model.Signal {
+// searchLongestCommonPrefixMatch returns the trie node that has the longest common
+// prefix with given path **whose MountInfos section is NOT NIL**
+func (t *trie) searchLongestCommonPrefixMatch(path string) (match *trie) {
+	if t == nil {
+		return nil
+	}
+	// for paths that don't have any exactly matching node in trie, return the
+	// longest prefix matching node (whose MountInfos isn't nil)
+	// make sure the returned trie node has a non-nil MountInfos, because to
+	// judge whether a path is writable, we need to track the **mount point**
+	// that has the longest common prefix with that path
+	var cur = t
+	// assert t is the root
+	if cur.DirName != "/" {
+		return nil
+	}
+	for _, level := range util.SplitPathLevels(path) {
+		if level != "/" {
+			cur = cur.Children[level] // to avoid strings.HasPrefix, which cannot handle path prefix correctly
+			// for example, /sys/fs1 and /sys/fs/cgroup don't have a common prefix "/sys/fs"
+		}
+		if cur == nil {
+			// to avoid going too deep and leading to nil pointer panic
+			// e.g. path = "/sys/fs/cgroup" while deepest level = "/sys/fs"
+			// when going into "cgroup", cur = nil (line 161), visit cur.MountInfos => panic!
+			break
+		}
+		if cur.MountInfos != nil {
+			match = cur // only consider mount points
+		}
+	}
+	return
+}
+
+// judgeVitalPathWritable judges whether some vital paths are writable
+// in which t is the root of the trie
+func (t *trie) judgeVitalPathWritable(vitalPaths []string) (signals []*model.Signal) {
 	// TODO
+	// 0. traverse all vital paths and handle them separately
+	for _, vitalPath := range vitalPaths {
+		match := t.searchLongestCommonPrefixMatch(vitalPath)
+		_ = match
+		var f func()
+		f = func() {
+
+		}
+		_ = f
+		// TODO: for all vital path mount points and their child mount points, check for `rw` settings (according to MountOptions and SuperOptions
+	}
 	return nil
 }
 
