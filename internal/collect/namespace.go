@@ -98,3 +98,22 @@ func ClctNamespace(thread *target.Thread) error {
 	}
 	return nil
 }
+
+// ThreadsForNS returns the collected threads that belong to the given namespace.
+func ThreadsForNS(ns target.NSRef) []*target.Thread {
+	var threads []*target.Thread
+
+	switch ns.Type {
+	case "mnt":
+		threads = MntNSThreads[ns]
+	case "pid":
+		threads = PIDNSThreads[ns]
+	case "user":
+		threads = UserNSThreads[ns]
+	default:
+		return nil
+	}
+	// create a copy of `threads`
+	// to avoid caller directly edit `threads`
+	return append([]*target.Thread(nil), threads...)
+}

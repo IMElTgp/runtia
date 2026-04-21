@@ -5,6 +5,7 @@ import (
 
 	"github.com/IMElTgp/container-runtime-analysis/internal/collect"
 	"github.com/IMElTgp/container-runtime-analysis/internal/model"
+	"github.com/IMElTgp/container-runtime-analysis/internal/target"
 	"github.com/IMElTgp/container-runtime-analysis/internal/util"
 )
 
@@ -90,6 +91,52 @@ func requireNoSearchMatch(t *testing.T, root *trie, path string) {
 
 	if match := root.searchLongestCommonPrefixMatch(path); match != nil {
 		t.Fatalf("expected no search match for %q, got %q", path, match.DirName)
+	}
+}
+
+func writableMount(mountID, parentID int, mountPoint, fsType string) collect.MountInfo {
+	return collect.MountInfo{
+		MountID:      mountID,
+		ParentID:     parentID,
+		MountPoint:   mountPoint,
+		MountOptions: []string{"rw"},
+		FStype:       fsType,
+		MountSource:  fsType,
+		SuperOptions: []string{"rw"},
+	}
+}
+
+func readOnlyMount(mountID, parentID int, mountPoint, fsType string) collect.MountInfo {
+	return collect.MountInfo{
+		MountID:      mountID,
+		ParentID:     parentID,
+		MountPoint:   mountPoint,
+		MountOptions: []string{"ro"},
+		FStype:       fsType,
+		MountSource:  fsType,
+		SuperOptions: []string{"ro"},
+	}
+}
+
+func withMntNSThreads(t *testing.T, ns target.NSRef, threads []*target.Thread) {
+	t.Helper()
+
+	oldThreads, existed := collect.MntNSThreads[ns]
+	collect.MntNSThreads[ns] = threads
+	t.Cleanup(func() {
+		if existed {
+			collect.MntNSThreads[ns] = oldThreads
+			return
+		}
+		delete(collect.MntNSThreads, ns)
+	})
+}
+
+func requireSignalCount(t *testing.T, signals []*model.Signal, want int) {
+	t.Helper()
+
+	if len(signals) != want {
+		t.Fatalf("expected %d signals, got %d", want, len(signals))
 	}
 }
 
@@ -328,4 +375,174 @@ func TestSearchLongestCommonPrefixMatchHandlesNilAndNonRootReceivers(t *testing.
 		MountInfos: []*collect.MountInfo{{MountID: 2, MountPoint: "/proc"}},
 	}
 	requireNoSearchMatch(t, nonRoot, "/proc")
+}
+
+func TestSearchExactPathMatchesExactNodesOnly(t *testing.T) {
+	ns := &model.NamespaceSnapshot{
+		MountInfo: []collect.MountInfo{
+			{MountID: 1, MountPoint: "/"},
+			{MountID: 2, MountPoint: "/sys/fs/cgroup"},
+		},
+	}
+	root := buildTrie(ns)
+
+	requireMountIDs(t, root.searchExactPath("/"), 1)
+	requireInternalTrieNode(t, root.searchExactPath("/sys"))
+	requireInternalTrieNode(t, root.searchExactPath("/sys/fs"))
+	requireMountIDs(t, root.searchExactPath("/sys/fs/cgroup"), 2)
+	if match := root.searchExactPath("/sys/fs1"); match != nil {
+		t.Fatalf("expected exact search miss for /sys/fs1, got %q", match.DirName)
+	}
+}
+
+func TestJudgeVitalPathWritableHandlesNilAndNonRootReceivers(t *testing.T) {
+	var root *trie
+	if got := root.judgeVitalPathWritable([]string{"/sys"}); got != nil {
+		t.Fatalf("expected nil signals for nil trie, got %d", len(got))
+	}
+
+	nonRoot := &trie{
+		DirName:     "/sys",
+		Children:    make(map[string]*trie),
+		MountInfos:  []*collect.MountInfo{{MountID: 2, MountPoint: "/sys"}},
+		BelongingNS: &model.NamespaceSnapshot{},
+	}
+	if got := nonRoot.judgeVitalPathWritable([]string{"/sys"}); got != nil {
+		t.Fatalf("expected nil signals for non-root trie, got %d", len(got))
+	}
+}
+
+func TestJudgeVitalPathWritableDirectExactSignals(t *testing.T) {
+	cases := []struct {
+		name      string
+		vitalPath string
+		title     string
+		risk      int
+	}{
+		{
+			name:      "kernel-control",
+			vitalPath: "/proc/sys",
+			title:     "Kernel control path /proc/sys is writable",
+			risk:      HighRisk,
+		},
+		{
+			name:      "host-view",
+			vitalPath: "/host",
+			title:     "Host filesystem view /host is writable",
+			risk:      HighRisk,
+		},
+		{
+			name:      "sensitive-runtime",
+			vitalPath: "/etc",
+			title:     "Sensitive runtime path /etc is writable",
+			risk:      MediumRisk,
+		},
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			nsRef := target.NSRef{Type: "mnt", Dev: uint64(i + 1), Ino: uint64(i + 101)}
+			ns := &model.NamespaceSnapshot{
+				NSRef: nsRef,
+				MountInfo: []collect.MountInfo{
+					writableMount(1, 1, "/", "ext4"),
+					writableMount(2, 1, tc.vitalPath, "ext4"),
+				},
+			}
+			thread := &target.Thread{Tid: i + 1, Tgid: i + 1, Comm: "test-thread", MntNS: nsRef}
+			withMntNSThreads(t, nsRef, []*target.Thread{thread})
+
+			signals := buildTrie(ns).judgeVitalPathWritable([]string{tc.vitalPath})
+			requireSignalCount(t, signals, 1)
+
+			signal := signals[0]
+			if signal.Category != "mount" {
+				t.Fatalf("expected mount category, got %q", signal.Category)
+			}
+			if signal.Title != tc.title {
+				t.Fatalf("expected title %q, got %q", tc.title, signal.Title)
+			}
+			if signal.RiskLevel != tc.risk {
+				t.Fatalf("expected risk %d, got %d", tc.risk, signal.RiskLevel)
+			}
+			if signal.RelativeNS == nil || *signal.RelativeNS != nsRef {
+				t.Fatalf("expected relative namespace %+v, got %+v", nsRef, signal.RelativeNS)
+			}
+			if len(signal.RelativeThreads) != 1 || signal.RelativeThreads[0] != thread {
+				t.Fatalf("expected one relative thread %p, got %#v", thread, signal.RelativeThreads)
+			}
+		})
+	}
+}
+
+func TestJudgeVitalPathWritableSkipsTmpfsExceptions(t *testing.T) {
+	for i, vitalPath := range []string{"/dev", "/run", "/var/run"} {
+		t.Run(vitalPath, func(t *testing.T) {
+			ns := &model.NamespaceSnapshot{
+				NSRef: target.NSRef{Type: "mnt", Dev: uint64(i + 20), Ino: uint64(i + 120)},
+				MountInfo: []collect.MountInfo{
+					writableMount(1, 1, "/", "ext4"),
+					writableMount(2, 1, vitalPath, "tmpfs"),
+				},
+			}
+
+			signals := buildTrie(ns).judgeVitalPathWritable([]string{vitalPath})
+			requireSignalCount(t, signals, 0)
+		})
+	}
+}
+
+func TestJudgeVitalPathWritableFindsWritableChildMountsWithinExactVitalPath(t *testing.T) {
+	ns := &model.NamespaceSnapshot{
+		NSRef: target.NSRef{Type: "mnt", Dev: 30, Ino: 130},
+		MountInfo: []collect.MountInfo{
+			readOnlyMount(1, 1, "/", "ext4"),
+			readOnlyMount(2, 1, "/sys", "sysfs"),
+			writableMount(3, 2, "/sys/fs/cgroup", "cgroup2"),
+			writableMount(4, 2, "/sys/fs1", "tmpfs"),
+		},
+	}
+
+	signals := buildTrie(ns).judgeVitalPathWritable([]string{"/sys/fs"})
+	requireSignalCount(t, signals, 1)
+
+	signal := signals[0]
+	if signal.Title != "Writable child mount /sys/fs/cgroup inherits risk from /sys/fs" {
+		t.Fatalf("unexpected title %q", signal.Title)
+	}
+	if signal.RiskLevel != HighRisk {
+		t.Fatalf("expected inherited child risk %d, got %d", HighRisk, signal.RiskLevel)
+	}
+}
+
+func TestJudgeVitalPathWritableReturnsNoSignalWhenNoMountPointMatches(t *testing.T) {
+	ns := &model.NamespaceSnapshot{
+		NSRef: target.NSRef{Type: "mnt", Dev: 40, Ino: 140},
+		MountInfo: []collect.MountInfo{
+			writableMount(10, 10, "/dev/sda1", "ext4"),
+		},
+	}
+
+	signals := buildTrie(ns).judgeVitalPathWritable([]string{"/proc/sys"})
+	requireSignalCount(t, signals, 0)
+}
+
+func TestJudgeVitalPathWritableClassifiesDirectSensitivePathByExactPath(t *testing.T) {
+	ns := &model.NamespaceSnapshot{
+		NSRef: target.NSRef{Type: "mnt", Dev: 50, Ino: 150},
+		MountInfo: []collect.MountInfo{
+			writableMount(1, 1, "/", "ext4"),
+		},
+	}
+
+	signals := buildTrie(ns).judgeVitalPathWritable([]string{"/sys/fs"})
+	requireSignalCount(t, signals, 1)
+
+	signal := signals[0]
+	if signal.Title != "Kernel control path /sys/fs is writable" {
+		t.Fatalf("unexpected title %q", signal.Title)
+	}
+	if signal.RiskLevel != HighRisk {
+		t.Fatalf("expected direct /sys/fs risk %d, got %d", HighRisk, signal.RiskLevel)
+	}
 }

@@ -1,8 +1,12 @@
 package analyze
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/IMElTgp/container-runtime-analysis/internal/collect"
 	"github.com/IMElTgp/container-runtime-analysis/internal/model"
+	"github.com/IMElTgp/container-runtime-analysis/internal/target"
 	"github.com/IMElTgp/container-runtime-analysis/internal/util"
 )
 
@@ -35,11 +39,11 @@ import (
 // simply partial string.
 
 // trie is for longest prefix matching in writable path judgment
-// all nodes are mount points
 type trie struct {
-	DirName    string
-	Children   map[string]*trie
-	MountInfos []*collect.MountInfo // nil for internal nodes that are not mount points
+	DirName     string
+	Children    map[string]*trie
+	MountInfos  []*collect.MountInfo // nil for internal nodes that are not mount points
+	BelongingNS *model.NamespaceSnapshot
 }
 
 // mntNode represents the mounting tree node
@@ -123,7 +127,7 @@ func buildTrie(mntns *model.NamespaceSnapshot) *trie {
 			if _, ok := trieNodes[level]; ok {
 				continue // to avoid repeating creating trie node
 			}
-			trieNodes[level] = &trie{level, make(map[string]*trie), mountPoints[level]}
+			trieNodes[level] = &trie{level, make(map[string]*trie), mountPoints[level], mntns}
 		}
 	}
 	// 4. build a trie out of those paths (in which non-mount-point paths own nil MountInfos)
@@ -174,22 +178,217 @@ func (t *trie) searchLongestCommonPrefixMatch(path string) (match *trie) {
 	return
 }
 
+// searchExactPath returns the exact trie node of given path
+func (t *trie) searchExactPath(path string) (match *trie) {
+	levels := util.SplitPathLevels(path)
+	cur := t
+	for _, level := range levels {
+		if level == "/" {
+			continue
+		}
+		cur = cur.Children[level]
+		if cur == nil {
+			return nil
+		}
+	}
+	return cur
+}
+
+// recursiveAnalyzeWritablePaths is the working function of judgeVitalPathWritable
+func (t *trie) recursiveAnalyzeWritablePaths(root *trie, inhRisk int, vitalPath string, recursive bool) (signals []*model.Signal) {
+	if root.DirName == vitalPath && root.MountInfos != nil && recursive {
+		// to avoid repeating the same signal of vitalPath itself
+		for _, child := range root.Children {
+			signals = append(signals, t.recursiveAnalyzeWritablePaths(child, inhRisk, vitalPath, recursive)...)
+		}
+		return
+	}
+	// recursively traverse all child mount points of current vital path
+	var (
+		riskToInh int // risk that is going to be passed down
+		// inhRisk is the risk that has been passed down to current level
+	)
+	switch root.DirName {
+	case "/proc/sys", "/sys", "/sys/fs", "/host", "/rootfs":
+		riskToInh = HighRisk
+	case "/etc", "/dev", "/run", "/var/run":
+		riskToInh = MediumRisk
+	default:
+		riskToInh = inhRisk // inherit ancestor's risk level
+	}
+	// search for mount points that have rw in both mount options and super options
+	if root.MountInfos == nil {
+		if recursive {
+			for _, child := range root.Children {
+				signals = append(signals, t.recursiveAnalyzeWritablePaths(child, max(riskToInh, inhRisk), vitalPath, recursive)...)
+			}
+		}
+		return
+	}
+
+	for _, info := range root.MountInfos {
+		exactPath := root.DirName
+		if !recursive {
+			exactPath = vitalPath
+		}
+		// check if MountOptions and SuperOptions contain "rw"
+		if !util.ContainsString(info.MountOptions, "rw") || !util.ContainsString(info.SuperOptions, "rw") {
+			continue
+		}
+		// both MountOptions and SuperOptions contain "rw", check fs
+		if strings.HasPrefix(info.FStype, "tmpfs") {
+			switch exactPath {
+			case "/dev", "/run", "/var/run":
+				continue
+			default:
+			}
+		}
+
+		// set risk level
+		var (
+			risk int
+			inh  bool
+		)
+		switch exactPath {
+		case "/proc/sys", "/sys", "/sys/fs", "/host", "/rootfs":
+			risk = HighRisk
+		case "/etc", "/dev", "/run", "/var/run":
+			risk = MediumRisk
+		default:
+			risk = inhRisk // inherit ancestor's risk level
+			inh = true
+		}
+
+		belongingNS := &target.NSRef{Type: "mnt", Dev: t.BelongingNS.Dev, Ino: t.BelongingNS.Ino}
+		signalText := switchMountHandler(inh, exactPath, vitalPath)
+		if signalText == nil {
+			continue
+		}
+
+		signal := &model.Signal{
+			Finding: model.Finding{
+				Category:        "mount",
+				RiskLevel:       risk,
+				Evidence:        addMountEvidence(info, vitalPath, exactPath, vitalPath, inh),
+				Title:           signalText[0],
+				Summary:         signalText[1],
+				Recommendation:  signalText[2],
+				RelativeNS:      belongingNS,
+				RelativeThreads: collect.ThreadsForNS(*belongingNS),
+			},
+		}
+		riskToInh = max(risk, riskToInh)
+		signals = append(signals, signal)
+
+	}
+	if recursive {
+		for _, child := range root.Children {
+			signals = append(signals, t.recursiveAnalyzeWritablePaths(child, max(riskToInh, inhRisk), vitalPath, recursive)...)
+		}
+	}
+	return
+}
+
 // judgeVitalPathWritable judges whether some vital paths are writable
 // in which t is the root of the trie
 func (t *trie) judgeVitalPathWritable(vitalPaths []string) (signals []*model.Signal) {
-	// TODO
-	// 0. traverse all vital paths and handle them separately
+	if t == nil || t.DirName != "/" {
+		return nil
+	}
+	// traverse all vital paths and handle them separately
 	for _, vitalPath := range vitalPaths {
-		match := t.searchLongestCommonPrefixMatch(vitalPath)
-		_ = match
-		var f func()
-		f = func() {
-
+		// pre-handle vitalPath's mount point
+		preHandleMountPoint := t.searchLongestCommonPrefixMatch(vitalPath)
+		if preHandleMountPoint != nil {
+			signals = append(signals, t.recursiveAnalyzeWritablePaths(preHandleMountPoint, Safe, vitalPath, false)...)
 		}
-		_ = f
-		// TODO: for all vital path mount points and their child mount points, check for `rw` settings (according to MountOptions and SuperOptions
+
+		match := t.searchExactPath(vitalPath)
+		if match == nil {
+			continue
+		}
+		signals = append(signals, t.recursiveAnalyzeWritablePaths(match, Safe, vitalPath, true)...)
+	}
+	return
+}
+
+func addMountEvidence(info *collect.MountInfo, vitalPath, signalPath, inheritedFrom string, inh bool) []string {
+	if !inh {
+		inheritedFrom = ""
+	}
+	return []string{
+		fmt.Sprintf("vital_path=%s", vitalPath),
+		fmt.Sprintf("signal_path=%s", signalPath),
+		fmt.Sprintf("matched_mount_point=%s", info.MountPoint),
+		fmt.Sprintf("inherited_from=%s", inheritedFrom),
+		fmt.Sprintf("mount_id=%d", info.MountID),
+		fmt.Sprintf("parent_id=%d", info.ParentID),
+		fmt.Sprintf("fstype=%s", info.FStype),
+		fmt.Sprintf("source=%s", info.MountSource),
+		fmt.Sprintf("mount_options=%s", info.MountOptions),
+		fmt.Sprintf("super_options=%s", info.SuperOptions),
+	}
+}
+
+func switchMountHandler(inh bool, exactPath string, inheritedFrom string) []string {
+	// return []{Title, Summary, Recommendation}
+	switch exactPath {
+	case "/proc/sys", "/sys", "/sys/fs":
+		return handleKernelCtrlWritable(exactPath)
+	case "/host", "/rootfs":
+		return handleHostFSViewWritable(exactPath)
+	case "/etc", "/dev", "/run", "/var/run":
+		return handleSensitiveRuntimePathWritable(exactPath)
+	default:
+		if inh {
+			return handleWritableChildMount(exactPath, inheritedFrom)
+		}
 	}
 	return nil
+}
+
+func handleKernelCtrlWritable(exactPath string) []string {
+	return []string{
+		// Title
+		fmt.Sprintf("Kernel control path %s is writable", exactPath),
+		// Summary
+		"Writable kernel control path may expose kernel tunables / control interfaces.",
+		// Recommendation
+		"Set this mount point to read-only; remove writable bind mount.",
+	}
+}
+
+func handleHostFSViewWritable(exactPath string) []string {
+	return []string{
+		// Title
+		fmt.Sprintf("Host filesystem view %s is writable", exactPath),
+		// Summary
+		"Write operations to this mount point may turn write operations inside container into editions to host filesystem.",
+		// Recommendation
+		"Set this mount point to read-only; narrow this mount.",
+	}
+}
+
+func handleSensitiveRuntimePathWritable(exactPath string) []string {
+	return []string{
+		// Title
+		fmt.Sprintf("Sensitive runtime path %s is writable", exactPath),
+		// Summary
+		"This mount option may affect settings, devices, sockets, and runtime state.",
+		// Recommendation
+		"Set this mount point to read-only if necessary; only assign write capability to child directories that really need.",
+	}
+}
+
+func handleWritableChildMount(exactPath string, inheritedFrom string) []string {
+	return []string{
+		// Title
+		fmt.Sprintf("Writable child mount %s inherits risk from %s", exactPath, inheritedFrom),
+		// Summary
+		"The child mount point opened write entry while the parent mount point seems to be under well control.",
+		// Recommendation
+		"Set this child mount point to read-only or move this mount point out of sensitive parent read-only path.",
+	}
 }
 
 // checkRWchildUnderROParent checks if there are writable children under read-only parent in mnt tree
