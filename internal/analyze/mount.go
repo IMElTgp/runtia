@@ -48,8 +48,17 @@ type trie struct {
 
 // mntNode represents the mounting tree node
 type mntNode struct {
-	Entry    *collect.MountInfo
-	Children []*mntNode
+	Entry       *collect.MountInfo
+	Children    []*mntNode
+	BelongingNS *model.NamespaceSnapshot
+}
+
+// isMountWritable checks whether a mount point is writable, according both MountOptions and SuperOptions in mountinfo
+func isMountWritable(info *collect.MountInfo) bool {
+	if info == nil {
+		return false
+	}
+	return util.ContainsString(info.MountOptions, "rw") && util.ContainsString(info.SuperOptions, "rw")
 }
 
 // buildMntTree returns a mount tree built from mountinfo, in which we have parent mount ID -> child mount ID mappings
@@ -87,7 +96,7 @@ func buildMntTree(mntns *model.NamespaceSnapshot) (nodes []*mntNode) {
 	// 3. build one mnt tree from each root
 	var recursiveBuild func(pair) *mntNode
 	recursiveBuild = func(r pair) *mntNode {
-		node := &mntNode{Entry: r.mi, Children: make([]*mntNode, 0)}
+		node := &mntNode{Entry: r.mi, Children: make([]*mntNode, 0), BelongingNS: mntns}
 		for i := range parent2child[r.ID] {
 			child := parent2child[r.ID][i]
 			if child.ID == r.ID {
@@ -232,7 +241,7 @@ func (t *trie) recursiveAnalyzeWritablePaths(root *trie, inhRisk int, vitalPath 
 			exactPath = vitalPath
 		}
 		// check if MountOptions and SuperOptions contain "rw"
-		if !util.ContainsString(info.MountOptions, "rw") || !util.ContainsString(info.SuperOptions, "rw") {
+		if !isMountWritable(info) {
 			continue
 		}
 		// both MountOptions and SuperOptions contain "rw", check fs
@@ -275,6 +284,7 @@ func (t *trie) recursiveAnalyzeWritablePaths(root *trie, inhRisk int, vitalPath 
 				Recommendation:  signalText[2],
 				RelativeNS:      belongingNS,
 				RelativeThreads: collect.ThreadsForNS(*belongingNS),
+				MountPoint:      []string{info.MountPoint},
 			},
 		}
 		riskToInh = max(risk, riskToInh)
@@ -312,6 +322,7 @@ func (t *trie) judgeVitalPathWritable(vitalPaths []string) (signals []*model.Sig
 	return
 }
 
+// addMountEvidence returns evidence for mount signals
 func addMountEvidence(info *collect.MountInfo, vitalPath, signalPath, inheritedFrom string, inh bool) []string {
 	if !inh {
 		inheritedFrom = ""
@@ -325,11 +336,12 @@ func addMountEvidence(info *collect.MountInfo, vitalPath, signalPath, inheritedF
 		fmt.Sprintf("parent_id=%d", info.ParentID),
 		fmt.Sprintf("fstype=%s", info.FStype),
 		fmt.Sprintf("source=%s", info.MountSource),
-		fmt.Sprintf("mount_options=%s", info.MountOptions),
-		fmt.Sprintf("super_options=%s", info.SuperOptions),
+		fmt.Sprintf("mount_options=%s", strings.Join(info.MountOptions, ", ")),
+		fmt.Sprintf("super_options=%s", strings.Join(info.SuperOptions, ", ")),
 	}
 }
 
+// switchMountHandler schedules handlers for title, summary and recommendation fill handlers for mount signals
 func switchMountHandler(inh bool, exactPath string, inheritedFrom string) []string {
 	// return []{Title, Summary, Recommendation}
 	switch exactPath {
@@ -347,6 +359,7 @@ func switchMountHandler(inh bool, exactPath string, inheritedFrom string) []stri
 	return nil
 }
 
+// handleKernelCtrlWritable handles /proc/sys, /sys, /sys/fs writable issue descriptions
 func handleKernelCtrlWritable(exactPath string) []string {
 	return []string{
 		// Title
@@ -358,6 +371,7 @@ func handleKernelCtrlWritable(exactPath string) []string {
 	}
 }
 
+// handleHostFSViewWritable handles /host, /rootfs writable issue descriptions
 func handleHostFSViewWritable(exactPath string) []string {
 	return []string{
 		// Title
@@ -369,6 +383,7 @@ func handleHostFSViewWritable(exactPath string) []string {
 	}
 }
 
+// handleSensitiveRuntimePathWritable handles /etc, /dev, /run and /var/run writable issue descriptions
 func handleSensitiveRuntimePathWritable(exactPath string) []string {
 	return []string{
 		// Title
@@ -380,6 +395,7 @@ func handleSensitiveRuntimePathWritable(exactPath string) []string {
 	}
 }
 
+// handleWritableChildMount handles writable child mount point under sensitive parent mount point issue descriptions
 func handleWritableChildMount(exactPath string, inheritedFrom string) []string {
 	return []string{
 		// Title
@@ -392,18 +408,98 @@ func handleWritableChildMount(exactPath string, inheritedFrom string) []string {
 }
 
 // checkRWchildUnderROParent checks if there are writable children under read-only parent in mnt tree
-func (m *mntNode) checkRWchildUnderROParent() []*model.Signal {
-	//TODO
-	return nil
+func (m *mntNode) checkRWchildUnderROParent() (sigs []*model.Signal) {
+	// traverse all nodes in m
+	// for every RO node:
+	//   - run a recursive worker function
+	//   - the worker function recursively checks whether there are RW nodes under that parent node
+	// rule:
+	// - if current node is RO and child node is RW:
+	//   - signal;
+	// - else:
+	//   - pass;
+	if m == nil || m.BelongingNS == nil {
+		return nil
+	}
+	relativeNS := &target.NSRef{Type: "mnt", Dev: m.BelongingNS.Dev, Ino: m.BelongingNS.Ino}
+	var recursiveFunc func(*mntNode) []*model.Signal
+	recursiveFunc = func(cur *mntNode) (signals []*model.Signal) {
+		if cur == nil || cur.Entry == nil || len(cur.Children) == 0 {
+			return nil
+		}
+		for _, child := range cur.Children {
+			if child == nil || child.Entry == nil {
+				continue
+			}
+			if !isMountWritable(cur.Entry) && isMountWritable(child.Entry) {
+				signals = append(signals, &model.Signal{
+					Finding: model.Finding{
+						Category:  "mount",
+						RiskLevel: Info, // not considering composition yet
+						Title:     "Writable child mount point under read-only parent mount point",
+						Summary:   "There is a writable child mount point right under its read-only parent mount point.",
+						Evidence: []string{
+							fmt.Sprintf("current mount point's mountinfo: %s, either MountPoint or SuperOptions not containing rw", cur.Entry.RawLine),
+							fmt.Sprintf("child mount point's mountinfo: %s, both MountOptions and SuperOptions containing rw", child.Entry.RawLine),
+						},
+						Recommendation:  "Check other findings to confirm if there are sensitive paths writable due to this read-only strike.",
+						RelativeNS:      relativeNS,
+						RelativeThreads: collect.ThreadsForNS(*relativeNS),
+						MountPoint:      []string{cur.Entry.MountPoint, child.Entry.MountPoint},
+					},
+				})
+			}
+			signals = append(signals, recursiveFunc(child)...)
+		}
+		return
+	}
+	sigs = append(sigs, recursiveFunc(m)...)
+	return
 }
 
-// checkPrivateStatus checks if there are nodes in mnt tree with non-private or unbindable status
+// checkPrivateOrUnbindableStatus checks if there are nodes in mnt tree with non-private or unbindable status
 // according to shared:xxx, master:xxx, ... in mountinfo
-func (m *mntNode) checkPrivateStatus() []*model.Signal {
-	// TODO
-	return nil
+func (m *mntNode) checkPrivateOrUnbindableStatus() (sigs []*model.Signal) {
+	if m == nil || m.BelongingNS == nil {
+		return nil
+	}
+	relativeNS := &target.NSRef{Type: "mnt", Dev: m.BelongingNS.Dev, Ino: m.BelongingNS.Ino}
+	if relativeNS == nil {
+		return nil
+	}
+	var recursiveFunc func(*mntNode) []*model.Signal
+	recursiveFunc = func(cur *mntNode) (signals []*model.Signal) {
+		if cur == nil || cur.Entry == nil {
+			return
+		}
+		// propagate_from always occur along with master:xxx
+		if util.ContainsStringPrefix(cur.Entry.OptionalFields, "shared") || util.ContainsStringPrefix(cur.Entry.OptionalFields, "master") {
+			signals = append(signals, &model.Signal{
+				Finding: model.Finding{
+					Category:  "mount",
+					RiskLevel: HighRisk,
+					Title:     "Mount point with non-private status in mount tree",
+					Summary:   "Existing mount point with non-private status in mount tree, which may cause operations inside the container leak to the host/other containers, or vice versa.",
+					Evidence: []string{
+						fmt.Sprintf("Mount point %s's optional fields: %s, containing \"shared\" or \"master\"", cur.Entry.MountPoint, strings.Join(cur.Entry.OptionalFields, ", ")),
+					},
+					Recommendation:  "Set this mount point's status to `private` to ensure data/control flow isolation.",
+					RelativeNS:      relativeNS,
+					RelativeThreads: collect.ThreadsForNS(*relativeNS),
+					MountPoint:      []string{cur.Entry.MountPoint},
+				},
+			})
+		}
+		for _, child := range cur.Children {
+			signals = append(signals, recursiveFunc(child)...)
+		}
+		return
+	}
+	sigs = append(sigs, recursiveFunc(m)...)
+	return
 }
 
+// AnalyzeMount is the entry point function of mount analysis
 func (r *Rule) AnalyzeMount() {
 	// TODO
 }

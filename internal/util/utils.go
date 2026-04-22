@@ -52,9 +52,20 @@ func BackToLastLevel(path string) string {
 
 // ContainsString checks whether the string slice (mainly returned by SplitPathLevels) contains a certain string
 // e.g. ContainsString(SplitPathLevels("/sys/fs"), "/sys") == true
-func ContainsString(strings []string, target string) bool {
-	for _, str := range strings {
+func ContainsString(strs []string, target string) bool {
+	for _, str := range strs {
 		if str == target {
+			return true
+		}
+	}
+	return false
+}
+
+// ContainsStringPrefix returns true if there are strings in `strs` that start with `prefix` instead of
+// having to equal to given string
+func ContainsStringPrefix(strs []string, prefix string) bool {
+	for _, str := range strs {
+		if strings.HasPrefix(str, prefix) {
 			return true
 		}
 	}

@@ -106,6 +106,18 @@ func writableMount(mountID, parentID int, mountPoint, fsType string) collect.Mou
 	}
 }
 
+func mountWithOptions(mountID, parentID int, mountPoint, fsType string, mountOptions, superOptions []string) collect.MountInfo {
+	return collect.MountInfo{
+		MountID:      mountID,
+		ParentID:     parentID,
+		MountPoint:   mountPoint,
+		MountOptions: mountOptions,
+		FStype:       fsType,
+		MountSource:  fsType,
+		SuperOptions: superOptions,
+	}
+}
+
 func readOnlyMount(mountID, parentID int, mountPoint, fsType string) collect.MountInfo {
 	return collect.MountInfo{
 		MountID:      mountID,
@@ -216,6 +228,133 @@ func TestBuildMntTreeKeepsMissingParentAsRoot(t *testing.T) {
 	if child := findChildByMountID(orphan, 21); child == nil {
 		t.Fatalf("expected orphan child mount ID 21 under mount ID 20")
 	}
+}
+
+func TestCheckRWchildUnderROParentHandlesNilReceiver(t *testing.T) {
+	var root *mntNode
+
+	if got := root.checkRWchildUnderROParent(); got != nil {
+		t.Fatalf("expected nil signals for nil receiver, got %d", len(got))
+	}
+}
+
+func TestCheckRWchildUnderROParentHandlesMissingNamespace(t *testing.T) {
+	root := &mntNode{
+		Entry: &collect.MountInfo{
+			MountID:      1,
+			ParentID:     1,
+			MountPoint:   "/",
+			MountOptions: []string{"ro"},
+			SuperOptions: []string{"ro"},
+		},
+	}
+
+	if got := root.checkRWchildUnderROParent(); got != nil {
+		t.Fatalf("expected nil signals for missing namespace, got %d", len(got))
+	}
+}
+
+func TestCheckRWchildUnderROParentReturnsNoSignalForLeafNode(t *testing.T) {
+	ns := &model.NamespaceSnapshot{
+		NSRef: target.NSRef{Type: "mnt", Dev: 60, Ino: 160},
+		MountInfo: []collect.MountInfo{
+			readOnlyMount(1, 1, "/", "ext4"),
+		},
+	}
+
+	root := findRootByMountID(buildMntTree(ns), 1)
+	signals := root.checkRWchildUnderROParent()
+	requireSignalCount(t, signals, 0)
+}
+
+func TestCheckRWchildUnderROParentFindsDirectROToRWTransitions(t *testing.T) {
+	nsRef := target.NSRef{Type: "mnt", Dev: 61, Ino: 161}
+	ns := &model.NamespaceSnapshot{
+		NSRef: nsRef,
+		MountInfo: []collect.MountInfo{
+			readOnlyMount(1, 1, "/", "ext4"),
+			writableMount(2, 1, "/data", "ext4"),
+		},
+	}
+	thread := &target.Thread{Tid: 61, Tgid: 61, Comm: "mount-check", MntNS: nsRef}
+	withMntNSThreads(t, nsRef, []*target.Thread{thread})
+
+	root := findRootByMountID(buildMntTree(ns), 1)
+	signals := root.checkRWchildUnderROParent()
+	requireSignalCount(t, signals, 1)
+
+	signal := signals[0]
+	if signal.Category != "mount" {
+		t.Fatalf("expected mount category, got %q", signal.Category)
+	}
+	if signal.RiskLevel != Info {
+		t.Fatalf("expected info risk %d, got %d", Info, signal.RiskLevel)
+	}
+	if signal.RelativeNS == nil || *signal.RelativeNS != nsRef {
+		t.Fatalf("expected relative namespace %+v, got %+v", nsRef, signal.RelativeNS)
+	}
+	if len(signal.RelativeThreads) != 1 || signal.RelativeThreads[0] != thread {
+		t.Fatalf("expected one relative thread %p, got %#v", thread, signal.RelativeThreads)
+	}
+	if len(signal.MountPoint) != 2 || signal.MountPoint[0] != "/" || signal.MountPoint[1] != "/data" {
+		t.Fatalf("expected parent/child mount points [\"/\" \"/data\"], got %#v", signal.MountPoint)
+	}
+}
+
+func TestCheckRWchildUnderROParentDoesNotRepeatAcrossWritableChain(t *testing.T) {
+	ns := &model.NamespaceSnapshot{
+		NSRef: target.NSRef{Type: "mnt", Dev: 62, Ino: 162},
+		MountInfo: []collect.MountInfo{
+			readOnlyMount(1, 1, "/", "ext4"),
+			writableMount(2, 1, "/data", "ext4"),
+			writableMount(3, 2, "/data/cache", "ext4"),
+		},
+	}
+
+	root := findRootByMountID(buildMntTree(ns), 1)
+	signals := root.checkRWchildUnderROParent()
+	requireSignalCount(t, signals, 1)
+
+	if len(signals[0].MountPoint) != 2 || signals[0].MountPoint[0] != "/" || signals[0].MountPoint[1] != "/data" {
+		t.Fatalf("expected only the first writable-island edge, got %#v", signals[0].MountPoint)
+	}
+}
+
+func TestCheckRWchildUnderROParentFindsMultipleWritableIslands(t *testing.T) {
+	ns := &model.NamespaceSnapshot{
+		NSRef: target.NSRef{Type: "mnt", Dev: 63, Ino: 163},
+		MountInfo: []collect.MountInfo{
+			readOnlyMount(1, 1, "/", "ext4"),
+			writableMount(2, 1, "/data", "ext4"),
+			readOnlyMount(3, 2, "/data/readonly", "ext4"),
+			writableMount(4, 3, "/data/readonly/cache", "ext4"),
+		},
+	}
+
+	root := findRootByMountID(buildMntTree(ns), 1)
+	signals := root.checkRWchildUnderROParent()
+	requireSignalCount(t, signals, 2)
+
+	if len(signals[0].MountPoint) != 2 || signals[0].MountPoint[0] != "/" || signals[0].MountPoint[1] != "/data" {
+		t.Fatalf("unexpected first transition %#v", signals[0].MountPoint)
+	}
+	if len(signals[1].MountPoint) != 2 || signals[1].MountPoint[0] != "/data/readonly" || signals[1].MountPoint[1] != "/data/readonly/cache" {
+		t.Fatalf("unexpected second transition %#v", signals[1].MountPoint)
+	}
+}
+
+func TestCheckRWchildUnderROParentRequiresWritableSuperOptions(t *testing.T) {
+	ns := &model.NamespaceSnapshot{
+		NSRef: target.NSRef{Type: "mnt", Dev: 64, Ino: 164},
+		MountInfo: []collect.MountInfo{
+			readOnlyMount(1, 1, "/", "ext4"),
+			mountWithOptions(2, 1, "/data", "ext4", []string{"rw"}, []string{"ro"}),
+		},
+	}
+
+	root := findRootByMountID(buildMntTree(ns), 1)
+	signals := root.checkRWchildUnderROParent()
+	requireSignalCount(t, signals, 0)
 }
 
 func TestBuildTrieBuildsHierarchyWithInternalNodes(t *testing.T) {
