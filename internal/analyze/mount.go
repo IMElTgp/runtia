@@ -501,5 +501,19 @@ func (m *mntNode) checkPrivateOrUnbindableStatus() (sigs []*model.Signal) {
 
 // AnalyzeMount is the entry point function of mount analysis
 func (r *Rule) AnalyzeMount() {
-	// TODO
+	for i := range r.Snapshot.MountNamespaces {
+		mntns := &r.Snapshot.MountNamespaces[i]
+		m, t := buildMntTree(mntns), buildTrie(mntns)
+		for _, signal := range t.judgeVitalPathWritable([]string{"/proc/sys", "/sys", "/sys/fs", "/host", "/rootfs", "/etc", "/run", "/var/run", "/dev"}) {
+			r.Signals = append(r.Signals, *signal)
+		}
+		for _, mntRoot := range m {
+			for _, signal := range mntRoot.checkRWchildUnderROParent() {
+				r.Signals = append(r.Signals, *signal)
+			}
+			for _, signal := range mntRoot.checkPrivateOrUnbindableStatus() {
+				r.Signals = append(r.Signals, *signal)
+			}
+		}
+	}
 }

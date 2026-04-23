@@ -152,6 +152,64 @@ func requireSignalCount(t *testing.T, signals []*model.Signal, want int) {
 	}
 }
 
+func requireRuleSignalCount(t *testing.T, signals []model.Signal, want int) {
+	t.Helper()
+
+	if len(signals) != want {
+		t.Fatalf("expected %d rule signals, got %d", want, len(signals))
+	}
+}
+
+func findSignalByTitle(signals []model.Signal, title string) *model.Signal {
+	for i := range signals {
+		if signals[i].Title == title {
+			return &signals[i]
+		}
+	}
+	return nil
+}
+
+func sameMountPoints(got []string, want ...string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func findSignalByTitleAndMountPoints(signals []model.Signal, title string, mountPoints ...string) *model.Signal {
+	for i := range signals {
+		if signals[i].Title == title && sameMountPoints(signals[i].MountPoint, mountPoints...) {
+			return &signals[i]
+		}
+	}
+	return nil
+}
+
+func countSignalsByTitle(signals []model.Signal, title string) int {
+	count := 0
+	for i := range signals {
+		if signals[i].Title == title {
+			count++
+		}
+	}
+	return count
+}
+
+func countSignalsByNS(signals []model.Signal, ns target.NSRef) int {
+	count := 0
+	for i := range signals {
+		if signals[i].RelativeNS != nil && *signals[i].RelativeNS == ns {
+			count++
+		}
+	}
+	return count
+}
+
 func TestBuildMntTreeBuildsMountIDHierarchy(t *testing.T) {
 	ns := &model.NamespaceSnapshot{
 		MountInfo: []collect.MountInfo{
@@ -683,5 +741,284 @@ func TestJudgeVitalPathWritableClassifiesDirectSensitivePathByExactPath(t *testi
 	}
 	if signal.RiskLevel != HighRisk {
 		t.Fatalf("expected direct /sys/fs risk %d, got %d", HighRisk, signal.RiskLevel)
+	}
+}
+
+func TestAnalyzeMountAggregatesSignalsAcrossChecks(t *testing.T) {
+	nsRef := target.NSRef{Type: "mnt", Dev: 70, Ino: 170}
+	thread := &target.Thread{Tid: 70, Tgid: 70, Comm: "analyze-mount", MntNS: nsRef}
+	withMntNSThreads(t, nsRef, []*target.Thread{thread})
+
+	rule := &Rule{
+		Snapshot: model.Snapshot{
+			MountNamespaces: []model.NamespaceSnapshot{
+				{
+					NSRef: nsRef,
+					MountInfo: []collect.MountInfo{
+						readOnlyMount(1, 1, "/", "ext4"),
+						writableMount(2, 1, "/dev", "ext4"),
+						mountWithOptions(3, 1, "/shared", "ext4", []string{"ro"}, []string{"ro"}),
+					},
+				},
+			},
+		},
+	}
+	rule.Snapshot.MountNamespaces[0].MountInfo[2].OptionalFields = []string{"shared:42"}
+
+	rule.AnalyzeMount()
+
+	requireRuleSignalCount(t, rule.Signals, 3)
+
+	devWritable := findSignalByTitle(rule.Signals, "Sensitive runtime path /dev is writable")
+	if devWritable == nil {
+		t.Fatalf("expected /dev writable signal in %#v", rule.Signals)
+	}
+	if devWritable.RiskLevel != MediumRisk {
+		t.Fatalf("expected /dev writable risk %d, got %d", MediumRisk, devWritable.RiskLevel)
+	}
+	if len(devWritable.MountPoint) != 1 || devWritable.MountPoint[0] != "/dev" {
+		t.Fatalf("expected /dev signal mount point [\"/dev\"], got %#v", devWritable.MountPoint)
+	}
+	if devWritable.RelativeNS == nil || *devWritable.RelativeNS != nsRef {
+		t.Fatalf("expected /dev signal namespace %+v, got %+v", nsRef, devWritable.RelativeNS)
+	}
+	if len(devWritable.RelativeThreads) != 1 || devWritable.RelativeThreads[0] != thread {
+		t.Fatalf("expected /dev signal thread %p, got %#v", thread, devWritable.RelativeThreads)
+	}
+
+	rwChild := findSignalByTitle(rule.Signals, "Writable child mount point under read-only parent mount point")
+	if rwChild == nil {
+		t.Fatalf("expected read-only to writable transition signal in %#v", rule.Signals)
+	}
+	if rwChild.RiskLevel != Info {
+		t.Fatalf("expected transition risk %d, got %d", Info, rwChild.RiskLevel)
+	}
+	if len(rwChild.MountPoint) != 2 || rwChild.MountPoint[0] != "/" || rwChild.MountPoint[1] != "/dev" {
+		t.Fatalf("expected transition mount points [\"/\" \"/dev\"], got %#v", rwChild.MountPoint)
+	}
+
+	shared := findSignalByTitle(rule.Signals, "Mount point with non-private status in mount tree")
+	if shared == nil {
+		t.Fatalf("expected shared mount propagation signal in %#v", rule.Signals)
+	}
+	if shared.RiskLevel != HighRisk {
+		t.Fatalf("expected shared mount risk %d, got %d", HighRisk, shared.RiskLevel)
+	}
+	if len(shared.MountPoint) != 1 || shared.MountPoint[0] != "/shared" {
+		t.Fatalf("expected shared signal mount point [\"/shared\"], got %#v", shared.MountPoint)
+	}
+}
+
+func TestAnalyzeMountLeavesSignalsEmptyWhenNothingMatches(t *testing.T) {
+	rule := &Rule{
+		Snapshot: model.Snapshot{
+			MountNamespaces: []model.NamespaceSnapshot{
+				{
+					NSRef: target.NSRef{Type: "mnt", Dev: 71, Ino: 171},
+					MountInfo: []collect.MountInfo{
+						readOnlyMount(1, 1, "/", "ext4"),
+						readOnlyMount(2, 1, "/opt", "ext4"),
+					},
+				},
+				{
+					NSRef: target.NSRef{Type: "mnt", Dev: 72, Ino: 172},
+				},
+			},
+		},
+	}
+
+	rule.AnalyzeMount()
+
+	requireRuleSignalCount(t, rule.Signals, 0)
+}
+
+func TestAnalyzeMountReadOnlyRootRuntimeSnapshotOnlySignalsWritableRuntimeChildren(t *testing.T) {
+	nsRef := target.NSRef{Type: "mnt", Dev: 80, Ino: 180}
+	thread := &target.Thread{Tid: 80, Tgid: 80, Comm: "readonly-runtime", MntNS: nsRef}
+	withMntNSThreads(t, nsRef, []*target.Thread{thread})
+
+	rule := &Rule{
+		Snapshot: model.Snapshot{
+			MountNamespaces: []model.NamespaceSnapshot{
+				{
+					NSRef: nsRef,
+					MountInfo: []collect.MountInfo{
+						readOnlyMount(1, 1, "/", "overlay"),
+						readOnlyMount(2, 1, "/proc/sys", "proc"),
+						readOnlyMount(3, 1, "/sys", "sysfs"),
+						readOnlyMount(4, 3, "/sys/fs/cgroup", "cgroup2"),
+						readOnlyMount(5, 1, "/etc", "overlay"),
+						writableMount(6, 1, "/dev", "tmpfs"),
+						writableMount(7, 1, "/run", "tmpfs"),
+						writableMount(8, 1, "/var/run", "tmpfs"),
+					},
+				},
+			},
+		},
+	}
+
+	rule.AnalyzeMount()
+
+	requireRuleSignalCount(t, rule.Signals, 3)
+	if countSignalsByTitle(rule.Signals, "Writable child mount point under read-only parent mount point") != 3 {
+		t.Fatalf("expected 3 runtime transition signals, got %#v", rule.Signals)
+	}
+	if signal := findSignalByTitle(rule.Signals, "Sensitive runtime path /dev is writable"); signal != nil {
+		t.Fatalf("expected tmpfs /dev not to trigger direct writable-path signal, got %#v", signal)
+	}
+	if signal := findSignalByTitle(rule.Signals, "Sensitive runtime path /run is writable"); signal != nil {
+		t.Fatalf("expected tmpfs /run not to trigger direct writable-path signal, got %#v", signal)
+	}
+	if signal := findSignalByTitle(rule.Signals, "Sensitive runtime path /var/run is writable"); signal != nil {
+		t.Fatalf("expected tmpfs /var/run not to trigger direct writable-path signal, got %#v", signal)
+	}
+
+	for _, mountPoints := range [][]string{{"/", "/dev"}, {"/", "/run"}, {"/", "/var/run"}} {
+		signal := findSignalByTitleAndMountPoints(rule.Signals, "Writable child mount point under read-only parent mount point", mountPoints...)
+		if signal == nil {
+			t.Fatalf("expected runtime transition for mount points %#v in %#v", mountPoints, rule.Signals)
+		}
+		if signal.RelativeNS == nil || *signal.RelativeNS != nsRef {
+			t.Fatalf("expected runtime transition namespace %+v, got %+v", nsRef, signal.RelativeNS)
+		}
+		if len(signal.RelativeThreads) != 1 || signal.RelativeThreads[0] != thread {
+			t.Fatalf("expected runtime transition thread %p, got %#v", thread, signal.RelativeThreads)
+		}
+	}
+}
+
+func TestAnalyzeMountPrivilegedContainerSnapshotFindsDeviceAndHostExposure(t *testing.T) {
+	nsRef := target.NSRef{Type: "mnt", Dev: 81, Ino: 181}
+	thread := &target.Thread{Tid: 81, Tgid: 81, Comm: "privileged-container", MntNS: nsRef}
+	withMntNSThreads(t, nsRef, []*target.Thread{thread})
+
+	rule := &Rule{
+		Snapshot: model.Snapshot{
+			MountNamespaces: []model.NamespaceSnapshot{
+				{
+					NSRef: nsRef,
+					MountInfo: []collect.MountInfo{
+						readOnlyMount(1, 1, "/", "overlay"),
+						readOnlyMount(2, 1, "/proc/sys", "proc"),
+						readOnlyMount(3, 1, "/sys", "sysfs"),
+						readOnlyMount(4, 1, "/etc", "overlay"),
+						writableMount(5, 1, "/dev", "devtmpfs"),
+						writableMount(6, 1, "/host", "ext4"),
+					},
+				},
+			},
+		},
+	}
+	rule.Snapshot.MountNamespaces[0].MountInfo[5].OptionalFields = []string{"shared:520"}
+
+	rule.AnalyzeMount()
+
+	requireRuleSignalCount(t, rule.Signals, 5)
+
+	dev := findSignalByTitleAndMountPoints(rule.Signals, "Sensitive runtime path /dev is writable", "/dev")
+	if dev == nil {
+		t.Fatalf("expected direct /dev exposure signal in %#v", rule.Signals)
+	}
+	if dev.RiskLevel != MediumRisk {
+		t.Fatalf("expected /dev signal risk %d, got %d", MediumRisk, dev.RiskLevel)
+	}
+
+	host := findSignalByTitleAndMountPoints(rule.Signals, "Host filesystem view /host is writable", "/host")
+	if host == nil {
+		t.Fatalf("expected direct /host exposure signal in %#v", rule.Signals)
+	}
+	if host.RiskLevel != HighRisk {
+		t.Fatalf("expected /host signal risk %d, got %d", HighRisk, host.RiskLevel)
+	}
+
+	for _, mountPoints := range [][]string{{"/", "/dev"}, {"/", "/host"}} {
+		signal := findSignalByTitleAndMountPoints(rule.Signals, "Writable child mount point under read-only parent mount point", mountPoints...)
+		if signal == nil {
+			t.Fatalf("expected read-only parent transition for %#v in %#v", mountPoints, rule.Signals)
+		}
+		if signal.RiskLevel != Info {
+			t.Fatalf("expected transition risk %d, got %d", Info, signal.RiskLevel)
+		}
+	}
+
+	shared := findSignalByTitleAndMountPoints(rule.Signals, "Mount point with non-private status in mount tree", "/host")
+	if shared == nil {
+		t.Fatalf("expected shared host mount signal in %#v", rule.Signals)
+	}
+	if shared.RiskLevel != HighRisk {
+		t.Fatalf("expected shared host mount risk %d, got %d", HighRisk, shared.RiskLevel)
+	}
+}
+
+func TestAnalyzeMountMixedSnapshotAggregatesOnlyRiskyNamespaceSignals(t *testing.T) {
+	safeNS := target.NSRef{Type: "mnt", Dev: 82, Ino: 182}
+	riskyNS := target.NSRef{Type: "mnt", Dev: 83, Ino: 183}
+	safeThread := &target.Thread{Tid: 82, Tgid: 82, Comm: "locked-down", MntNS: safeNS}
+	riskyThread := &target.Thread{Tid: 83, Tgid: 83, Comm: "host-rootfs", MntNS: riskyNS}
+	withMntNSThreads(t, safeNS, []*target.Thread{safeThread})
+	withMntNSThreads(t, riskyNS, []*target.Thread{riskyThread})
+
+	rule := &Rule{
+		Snapshot: model.Snapshot{
+			MountNamespaces: []model.NamespaceSnapshot{
+				{
+					NSRef: safeNS,
+					MountInfo: []collect.MountInfo{
+						writableMount(1, 1, "/", "overlay"),
+						readOnlyMount(2, 1, "/proc/sys", "proc"),
+						readOnlyMount(3, 1, "/sys", "sysfs"),
+						readOnlyMount(4, 3, "/sys/fs/cgroup", "cgroup2"),
+						readOnlyMount(5, 1, "/etc", "overlay"),
+						writableMount(6, 1, "/dev", "tmpfs"),
+						writableMount(7, 1, "/run", "tmpfs"),
+						writableMount(8, 1, "/var/run", "tmpfs"),
+						readOnlyMount(9, 1, "/host", "bind"),
+						readOnlyMount(10, 1, "/rootfs", "bind"),
+					},
+				},
+				{
+					NSRef: riskyNS,
+					MountInfo: []collect.MountInfo{
+						readOnlyMount(11, 11, "/", "overlay"),
+						readOnlyMount(12, 11, "/proc/sys", "proc"),
+						readOnlyMount(13, 11, "/sys", "sysfs"),
+						readOnlyMount(14, 11, "/etc", "overlay"),
+						writableMount(15, 11, "/rootfs", "ext4"),
+					},
+				},
+			},
+		},
+	}
+
+	rule.AnalyzeMount()
+
+	requireRuleSignalCount(t, rule.Signals, 2)
+	if countSignalsByNS(rule.Signals, safeNS) != 0 {
+		t.Fatalf("expected safe namespace %+v to produce no signals, got %#v", safeNS, rule.Signals)
+	}
+	if countSignalsByNS(rule.Signals, riskyNS) != 2 {
+		t.Fatalf("expected risky namespace %+v to produce 2 signals, got %#v", riskyNS, rule.Signals)
+	}
+
+	rootfs := findSignalByTitleAndMountPoints(rule.Signals, "Host filesystem view /rootfs is writable", "/rootfs")
+	if rootfs == nil {
+		t.Fatalf("expected /rootfs exposure signal in %#v", rule.Signals)
+	}
+	if rootfs.RelativeNS == nil || *rootfs.RelativeNS != riskyNS {
+		t.Fatalf("expected /rootfs signal namespace %+v, got %+v", riskyNS, rootfs.RelativeNS)
+	}
+	if len(rootfs.RelativeThreads) != 1 || rootfs.RelativeThreads[0] != riskyThread {
+		t.Fatalf("expected /rootfs signal thread %p, got %#v", riskyThread, rootfs.RelativeThreads)
+	}
+
+	transition := findSignalByTitleAndMountPoints(rule.Signals, "Writable child mount point under read-only parent mount point", "/", "/rootfs")
+	if transition == nil {
+		t.Fatalf("expected /rootfs transition signal in %#v", rule.Signals)
+	}
+	if transition.RelativeNS == nil || *transition.RelativeNS != riskyNS {
+		t.Fatalf("expected /rootfs transition namespace %+v, got %+v", riskyNS, transition.RelativeNS)
+	}
+	if len(transition.RelativeThreads) != 1 || transition.RelativeThreads[0] != riskyThread {
+		t.Fatalf("expected /rootfs transition thread %p, got %#v", riskyThread, transition.RelativeThreads)
 	}
 }
