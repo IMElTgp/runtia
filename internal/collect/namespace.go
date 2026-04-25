@@ -19,6 +19,8 @@ var (
 	MntNSInfo = make(map[target.NSRef][]MountInfo)
 	// OwnerUserNSByNS represents the owner user namespace of non-user namespaces
 	OwnerUserNSByNS = make(map[target.NSRef]target.NSRef)
+	// HostMntNS, HostPIDNS, HostUserNS are namespaces outside the container (from the host)
+	HostMntNS, HostPIDNS, HostUserNS target.NSRef
 )
 
 // getOwnerUserNS fetches a non-user namespace's belonging user ns and records that into OwnerUserNSByNS
@@ -57,7 +59,7 @@ func ClctNamespace(thread *target.Thread) error {
 	for _, e := range entries {
 		if e.IsDir() {
 			// namespace files should not be directories
-			return fmt.Errorf("internal/collect/namespace.go: identifyNamespace: ns directory should not contain directories")
+			return fmt.Errorf("internal/collect/namespace.go: ClctNamespace: ns directory should not contain directories")
 		}
 		nsPath := filepath.Join(path, e.Name())
 		nsfd, err := unix.Open(nsPath, unix.O_RDONLY|unix.O_CLOEXEC, 0)
@@ -99,7 +101,47 @@ func ClctNamespace(thread *target.Thread) error {
 	return nil
 }
 
-// ThreadsForNS returns the collected threads that belong to the given namespace.
+func ClctHostNamespace() error {
+	// collect host namespace from /proc/self/ns/*
+	path := "/proc/self/ns"
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			// as mentioned before, in ns directory, there should not be directories
+			return fmt.Errorf("internal/collect/namespace.go: ClctHostNamespace: ns directory should not contain directories")
+		}
+		nsPath := filepath.Join(path, entry.Name())
+		nsfd, err := unix.Open(nsPath, unix.O_RDONLY|unix.O_CLOEXEC, 0)
+		if err != nil {
+			return err
+		}
+
+		defer unix.Close(nsfd)
+
+		var info unix.Stat_t
+		if err := unix.Fstat(nsfd, &info); err != nil {
+			return err
+		}
+		dev, ino := info.Dev, info.Ino
+
+		switch entry.Name() {
+		case "mnt":
+			HostMntNS = target.NSRef{Dev: dev, Ino: ino, Type: "mnt"}
+		case "pid":
+			HostPIDNS = target.NSRef{Dev: dev, Ino: ino, Type: "pid"}
+		case "user":
+			HostUserNS = target.NSRef{Dev: dev, Ino: ino, Type: "user"}
+		}
+	}
+
+	return nil
+}
+
+// ThreadsForNS returns the collected threads that belong to the given namespace
 func ThreadsForNS(ns target.NSRef) []*target.Thread {
 	var threads []*target.Thread
 
@@ -116,4 +158,9 @@ func ThreadsForNS(ns target.NSRef) []*target.Thread {
 	// create a copy of `threads`
 	// to avoid caller directly edit `threads`
 	return append([]*target.Thread(nil), threads...)
+}
+
+// GetOwnerUserNS returns owner user namespace of given ns
+func GetOwnerUserNS(ns target.NSRef) target.NSRef {
+	return OwnerUserNSByNS[ns]
 }

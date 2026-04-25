@@ -88,6 +88,10 @@ func makeCollections(threads map[int]*target.Thread, s *Snapshot) {
 	if err != nil {
 		s.Warnings = append(s.Warnings, "On Collecting mountinfo: "+err.Error())
 	}
+	err = collect.ClctHostNamespace()
+	if err != nil {
+		s.Warnings = append(s.Warnings, "On Collecting Host namespaces: "+err.Error())
+	}
 }
 
 func DoSnapshot(metadata Metadata) (Snapshot, error) {
@@ -95,7 +99,7 @@ func DoSnapshot(metadata Metadata) (Snapshot, error) {
 	if err != nil {
 		return Snapshot{}, err
 	}
-	var s Snapshot = initSnapshot()
+	var s = initSnapshot()
 	// 0. do collections
 	makeCollections(threads, &s)
 	// 1. collect metadata
