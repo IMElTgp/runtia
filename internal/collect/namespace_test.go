@@ -130,3 +130,90 @@ func TestClctHostNamespaceMatchesCurrentThreadNamespaces(t *testing.T) {
 		t.Fatalf("expected pid namespace owner %+v to match thread user namespace %+v", owner, thread.UserNS)
 	}
 }
+
+func TestThreadsForNSDispatchAndCopy(t *testing.T) {
+	resetNamespaceCollectorState(t)
+
+	mntNS := target.NSRef{Type: "mnt", Dev: 11, Ino: 111}
+	pidNS := target.NSRef{Type: "pid", Dev: 22, Ino: 222}
+	userNS := target.NSRef{Type: "user", Dev: 33, Ino: 333}
+
+	mntThread := &target.Thread{Tid: 1, Tgid: 1, MntNS: mntNS}
+	pidThread := &target.Thread{Tid: 2, Tgid: 2, PIDNS: pidNS}
+	userThread := &target.Thread{Tid: 3, Tgid: 3, UserNS: userNS}
+
+	MntNSThreads[mntNS] = []*target.Thread{mntThread}
+	PIDNSThreads[pidNS] = []*target.Thread{pidThread}
+	UserNSThreads[userNS] = []*target.Thread{userThread}
+
+	cases := []struct {
+		name    string
+		ns      target.NSRef
+		wantTid int
+	}{
+		{
+			name:    "mount namespace",
+			ns:      mntNS,
+			wantTid: mntThread.Tid,
+		},
+		{
+			name:    "pid namespace",
+			ns:      pidNS,
+			wantTid: pidThread.Tid,
+		},
+		{
+			name:    "user namespace",
+			ns:      userNS,
+			wantTid: userThread.Tid,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ThreadsForNS(tc.ns)
+			if len(got) != 1 || got[0] == nil || got[0].Tid != tc.wantTid {
+				t.Fatalf("expected one thread with tid=%d, got %#v", tc.wantTid, got)
+			}
+
+			got[0] = nil
+			again := ThreadsForNS(tc.ns)
+			if len(again) != 1 || again[0] == nil || again[0].Tid != tc.wantTid {
+				t.Fatalf("expected returned slice mutation not to affect stored threads, got %#v", again)
+			}
+		})
+	}
+
+	if got := ThreadsForNS(target.NSRef{Type: "net", Dev: 44, Ino: 444}); got != nil {
+		t.Fatalf("expected nil for unsupported namespace type, got %#v", got)
+	}
+}
+
+func TestGetOwnerUserNSKnownAndUnknown(t *testing.T) {
+	resetNamespaceCollectorState(t)
+
+	pidNS := target.NSRef{Type: "pid", Dev: 55, Ino: 555}
+	ownerUserNS := target.NSRef{Type: "user", Dev: 66, Ino: 666}
+	OwnerUserNSByNS[pidNS] = ownerUserNS
+
+	if got := GetOwnerUserNS(pidNS); got != ownerUserNS {
+		t.Fatalf("expected owner user namespace %+v, got %+v", ownerUserNS, got)
+	}
+
+	if got := GetOwnerUserNS(target.NSRef{Type: "mnt", Dev: 77, Ino: 777}); got != (target.NSRef{}) {
+		t.Fatalf("expected zero-value namespace for unknown owner, got %+v", got)
+	}
+}
+
+func TestClctNamespaceReturnsErrorForMissingThread(t *testing.T) {
+	resetNamespaceCollectorState(t)
+
+	thread := &target.Thread{
+		Tid:          -1,
+		Tgid:         -1,
+		IsMainThread: true,
+	}
+
+	if err := ClctNamespace(thread); err == nil {
+		t.Fatalf("expected error for non-existent /proc thread path")
+	}
+}
