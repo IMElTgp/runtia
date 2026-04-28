@@ -16,3 +16,10 @@ const (
 	HighRisk
 	Fatal
 )
+
+func (r *Rule) Entry() {
+	r.AnalyzeNamespaces()
+	r.AnalyzeSeccomp()
+	r.AnalyzeCapabilities()
+	r.AnalyzeMount()
+}

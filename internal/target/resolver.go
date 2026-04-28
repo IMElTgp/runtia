@@ -16,13 +16,6 @@ type NSRef struct {
 	Dev, Ino uint64 // unique identifier of a namespace, got from os.Stat(path)
 }
 
-// Credentials are parsed from /proc/<pid>/task/<tid>/status, showing UIDs and GIDs, which indicate the
-// thread's privileges
-type Credentials struct {
-	RUID, EUID, SUID, FSUID uint32
-	RGID, EGID, SGID, FSGID uint32
-}
-
 // Thread represents a thread
 // all the following security checks are per-thread
 type Thread struct {
@@ -49,8 +42,6 @@ type Thread struct {
 	SeccompFilters int
 	// no further privileges adding
 	NoNewPrivs bool
-	// for user ns
-	Creds Credentials
 }
 
 func printErr(err error) {
