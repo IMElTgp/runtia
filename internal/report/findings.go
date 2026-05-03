@@ -24,5 +24,6 @@ func GenerateFindings(signals []*model.Signal) (findings []*model.Finding) {
 			MountPoint:      sig.MountPoint,
 		})
 	}
+
 	return
 }
