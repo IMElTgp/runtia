@@ -2,6 +2,7 @@ package util
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -70,4 +71,13 @@ func ContainsStringPrefix(strs []string, prefix string) bool {
 		}
 	}
 	return false
+}
+
+func JoinStringSlice(slice []string) string {
+	if len(slice) == 0 {
+		return ""
+	}
+	join := append([]string(nil), slice...)
+	slices.Sort(join)
+	return strings.Join(join, "\n")
 }
