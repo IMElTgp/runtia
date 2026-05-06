@@ -1,81 +1,170 @@
 # Runtia
 
-Runtia is a work-in-progress CLI for investigating the basic security-related runtime settings of a running container.
+Runtia is a Linux host-side CLI for inspecting the effective runtime security state of a running Docker container.
 
-Instead of scanning an image or a deployment manifest, Runtia is meant to inspect what is actually in effect for a live container on a Linux host. The goal is to collect runtime facts, analyze them, and flag risky points that weaken container isolation.
+It does not scan images or manifests. It inspects the live container from the host through `/proc`, namespace references, mount information, seccomp state, and capability sets, then reports findings that weaken container isolation.
 
-## What The Tool Is Meant To Inspect
+## MVP Status
 
-- namespaces, especially mount namespace (`mntns`) and user namespace (`userns`) behavior
-- seccomp state and whether syscall filtering is missing or unexpectedly weak
-- Linux capabilities and dangerous privileges retained by the container
-- mount layout and other runtime details that can expand the attack surface
-- host-visible process and container metadata needed to explain the findings
+Runtia has reached a usable MVP stage.
 
-## What Kinds Of Risks It Should Recognize
+Current MVP capabilities:
 
-- missing or weak user namespace isolation
-- weak mount namespace separation
-- seccomp disabled, absent, or less restrictive than expected
-- overly broad capability sets
-- risky mounts that expose sensitive host paths or enable unsafe write access
+- resolve a running Docker container from `--container-id`
+- collect live runtime facts from the host
+- analyze namespace, seccomp, capability, and mount-related risk signals
+- print a readable terminal summary with representative high-risk findings
+- write per-category JSON reports for machine consumption
 
-## Approach
+The current implementation has already been verified against:
 
-Runtia is being designed around a simple inspection pipeline:
+- a low-risk baseline container
+- a container with `seccomp=unconfined`
+- a container with `CAP_SYS_ADMIN`
+
+## What It Detects Today
+
+The current analyzer focuses on four categories:
+
+- `namespace`
+  - host user namespace sharing
+  - host PID namespace sharing
+  - host mount namespace sharing
+  - per-thread namespace deviation from the main thread
+  - owner user namespace mismatch for non-user namespaces
+
+- `seccomp`
+  - seccomp fully disabled
+  - strict seccomp mode
+  - filter mode without attached filters
+  - `no_new_privs` disabled
+
+- `capabilities`
+  - dangerous capabilities in effective, permitted, ambient, inheritable, or bounding sets
+  - risk prioritization for capabilities such as `CAP_SYS_ADMIN`, `CAP_DAC_OVERRIDE`, `CAP_NET_ADMIN`, `CAP_BPF`, and others
+
+- `mount`
+  - non-private mount propagation markers such as `shared:X`
+  - writable sensitive runtime or host-visible paths
+  - writable child mount under a read-only parent mount
+
+## Runtime Pipeline
+
+Runtia follows this pipeline:
 
 ```text
 target -> collect -> snapshot -> analyze -> finding -> report
 ```
 
-1. resolve a scan target from a container ID or PID
-2. collect raw runtime data from `/proc`, namespace references, mount information, and related kernel interfaces
-3. normalize that data into a snapshot of the container's effective state
-4. apply security rules to identify risky points
-5. report structured findings in a readable form
+1. resolve a scan target from a Docker container ID
+2. collect raw runtime facts from the host
+3. normalize them into a snapshot
+4. analyze the snapshot into structured findings
+5. render findings for terminal output and JSON output
 
-## Current Status
+## Current Input Model
 
-This repository is under active development.
+Current supported input:
 
-The direction is clear, but the scanner is not feature-complete yet. The current codebase is laying out the collection, analysis, and reporting structure needed for a host-side runtime security tool. Some packages are still placeholders while the core scan flow is being built out.
+- Docker container ID via `--container-id`
 
-At this stage, Runtia should be understood as:
+Not yet wired as a supported user-facing path:
 
-- a prototype for runtime container security inspection
-- focused on Linux containers
-- aimed at turning low-level runtime facts into actionable findings
+- direct PID-based scanning
 
-## Scope
+## Output Model
 
-Runtia is focused on runtime inspection. It is not intended to be:
+Terminal output:
 
-- an image vulnerability scanner
-- an SBOM generator
-- an admission controller
-- a full orchestration or cluster security platform
+- overall finding counts by severity
+- representative `Fatal` and `HighRisk` findings
+
+JSON output:
+
+- `capabilities.json`
+- `mount.json`
+- `namespace.json`
+- `seccomp.json`
+
+Only categories with findings are written.
+
+## Build And Run
+
+Build:
+
+```bash
+go build -o ./bin/runtia ./cmd
+```
+
+Run against a live Docker container:
+
+```bash
+./bin/runtia --container-id <container-id>
+```
+
+Example:
+
+```bash
+docker run -d --rm --name runtia-demo --security-opt seccomp=unconfined alpine sleep 600
+./bin/runtia --container-id runtia-demo
+docker rm -f runtia-demo
+```
 
 ## Environment Assumptions
 
 - Linux host
-- access to the target container's process information
-- container runtime metadata available from the host
+- Docker Engine
+- host access to the target container's `/proc` information
 
-Docker-oriented target resolution is the first expected workflow, with room to expand later.
+This tool is currently oriented around rootful Docker-on-Linux style inspection.
 
 ## Repository Layout
 
-- `internal/target`: resolve what should be inspected
-- `internal/collect`: gather raw runtime facts
-- `internal/model`: shared structures for snapshots and findings
-- `internal/analyze`: apply security rules and detect risky conditions
-- `internal/report`: render findings for humans or machines
+- `cmd`
+  - CLI entrypoint
+- `internal/app`
+  - orchestration for one scan run
+- `internal/target`
+  - resolve scan targets and enumerate container threads
+- `internal/collect`
+  - collect raw runtime facts from the host
+- `internal/model`
+  - shared snapshot, signal, and finding structures
+- `internal/analyze`
+  - risk analysis rules
+- `internal/report`
+  - terminal and JSON reporting
 
-## Roadmap
+## Scope
 
-- resolve targets from container IDs and PIDs
-- collect namespace, seccomp, capability, and mount data from live containers
-- define stable snapshot and finding models
-- add initial detection rules for common container hardening gaps
-- produce text and JSON reports
-- expand runtime support beyond the initial Docker-based flow
+Runtia is intentionally narrow.
+
+It is not:
+
+- an image vulnerability scanner
+- an SBOM generator
+- a Kubernetes admission controller
+- a full container security platform
+
+It is a host-side runtime inspector focused on turning live low-level runtime facts into actionable findings.
+
+## Verified Lab
+
+The repository currently includes or references a local runtime risk lab under `./container-risk-lab`.
+
+The following scenarios are already suitable for the current MVP:
+
+- `baseline`
+- `seccomp-unconfined`
+- `cap-sys-admin`
+
+Additional scenarios such as host PID namespace sharing and mount-related edge cases are appropriate next-step validation targets as the runtime coverage is expanded further.
+
+## Next Steps
+
+The MVP is in place. The next work is additive rather than foundational:
+
+- expand live validation coverage to more namespace and mount scenarios
+- improve the PID-based target path
+- refine reporting ergonomics and JSON schema
+- tighten error handling and integration tests
