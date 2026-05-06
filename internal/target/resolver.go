@@ -49,25 +49,27 @@ func printErr(err error) {
 }
 
 // extractPID extracts container main process PID by calling docker inspect
-func extractPID(containerID string) string {
+func extractPID(containerID string) (string, error) {
 	out, err := exec.Command("docker", "inspect", "-f", "{{.State.Pid}}", containerID).Output()
 	if err != nil {
 		// handle error
-		printErr(err)
-		return ""
+		return "", err
 	}
 	out = []byte(strings.TrimRight(string(out), "\n"))
-	return string(out)
+	return string(out), nil
 }
 
 // ResolveCgroupPath resolves containerID into the container's cgroup path to extract all the processes inside
-func ResolveCgroupPath(containerID string) string {
-	fmt.Println("main process id:", extractPID(containerID))
-	f, err := os.Open(filepath.Join("/proc", extractPID(containerID), "/cgroup"))
+func ResolveCgroupPath(containerID string) (string, error) {
+	pid, err := extractPID(containerID)
+	if err != nil {
+		return "", fmt.Errorf(err.Error() + "; extract container main process ID failed. Check if you've provided invalid container ID")
+	}
+	fmt.Println("main process id:", pid)
+	f, err := os.Open(filepath.Join("/proc", pid, "cgroup"))
 	if err != nil {
 		// handle error
-		printErr(err)
-		return ""
+		return "", fmt.Errorf(err.Error() + "; open cgroup file failed. Check if you've provided invalid container ID")
 	}
 	defer func() {
 		if err = f.Close(); err != nil {
@@ -78,14 +80,14 @@ func ResolveCgroupPath(containerID string) string {
 	cgroupPath, err := buf.ReadString('\n')
 	if err != nil {
 		// handle error
-		printErr(err)
+		return "", err
 	}
 	cgroupPath = strings.TrimPrefix(cgroupPath, "0::/")
 	// test
 	fullPath := filepath.Join("/sys/fs/cgroup", cgroupPath)
 	// clear '\n'
 	fullPath = strings.TrimSpace(fullPath)
-	return fullPath
+	return fullPath, nil
 }
 
 // getComm reveals a thread's comm by reading /proc/<tid>/comm

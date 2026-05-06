@@ -105,7 +105,7 @@ func representativeFinding(category string, risk int, title string, tgid, tid in
 func TestGenerateFindingsCopiesSignalFields(t *testing.T) {
 	thread := &target.Thread{Tgid: 10, Tid: 10, Comm: "main"}
 	ns := &target.NSRef{Type: "pid", Dev: 4, Ino: 5}
-	signals := []*model.Signal{
+	signals := []model.Signal{
 		{
 			Finding: model.Finding{
 				Category:        "seccomp",
@@ -144,7 +144,7 @@ func TestFindingsToJSONReturnsIndentedHomogeneousJSONArray(t *testing.T) {
 		jsonSampleFinding("namespace", analyze.HighRisk, "second"),
 	}
 
-	jsons, err, typ := FindingsToJSON(findings)
+	jsons, err, typ := findingsToJSON(findings)
 	if err != nil {
 		t.Fatalf("FindingsToJSON() error = %v", err)
 	}
@@ -165,7 +165,7 @@ func TestFindingsToJSONReturnsIndentedHomogeneousJSONArray(t *testing.T) {
 }
 
 func TestFindingsToJSONRejectsEmptySlice(t *testing.T) {
-	jsons, err, typ := FindingsToJSON(nil)
+	jsons, err, typ := findingsToJSON(nil)
 	if err == nil {
 		t.Fatalf("expected error for empty findings")
 	}

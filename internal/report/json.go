@@ -2,7 +2,6 @@ package report
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/IMElTgp/container-runtime-analysis/internal/model"
 )
@@ -12,13 +11,13 @@ import (
  * store all findings as JSON
  */
 
-// FindingsToJSON is expected to be called once for each category, and process all findings
+// findingsToJSON is expected to be called once for each category, and process all findings
 // of one category at a time
-// input findings should be one of namespaceFindings, mountFindings, capabilitiesFindings, and
-// seccompFindings
-func FindingsToJSON(findings []*model.Finding) (jsons []byte, err error, Type string) {
+// input findings should be one of NamespaceFindings, MountFindings, CapabilitiesFindings, and
+// SeccompFindings
+func findingsToJSON(findings []*model.Finding) (jsons []byte, err error, Type string) {
 	if len(findings) == 0 {
-		return nil, fmt.Errorf("internal/report.go: FindingsToJSON: empty findings"), ""
+		return nil, nil, ""
 	}
 
 	jsons, err = json.MarshalIndent(findings, "", " ")

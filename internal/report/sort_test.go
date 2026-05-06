@@ -19,15 +19,15 @@ func testNS(nsType string, dev, ino uint64) *target.NSRef {
 
 func resetSortState(t *testing.T) {
 	t.Helper()
-	namespaceFindings = nil
-	seccompFindings = nil
-	mountFindings = nil
-	capabilitiesFindings = nil
+	NamespaceFindings = nil
+	SeccompFindings = nil
+	MountFindings = nil
+	CapabilitiesFindings = nil
 	t.Cleanup(func() {
-		namespaceFindings = nil
-		seccompFindings = nil
-		mountFindings = nil
-		capabilitiesFindings = nil
+		NamespaceFindings = nil
+		SeccompFindings = nil
+		MountFindings = nil
+		CapabilitiesFindings = nil
 	})
 }
 
@@ -164,7 +164,7 @@ func TestSortNamespaceFindingsOrdersByRiskTypeDevAndIno(t *testing.T) {
 	duplicate := namespaceFinding(analyze.HighRisk, "user", 1, 10, "u1-10")
 	duplicate.Title = highUserDev1Ino10.Title
 
-	namespaceFindings = []*model.Finding{
+	NamespaceFindings = []*model.Finding{
 		mediumUser,
 		highMnt,
 		highUserDev2,
@@ -184,7 +184,7 @@ func TestSortNamespaceFindingsOrdersByRiskTypeDevAndIno(t *testing.T) {
 		"mnt:mnt",
 		"user:medium",
 	}
-	if got := namespaceSignatures(namespaceFindings); !slices.Equal(got, want) {
+	if got := namespaceSignatures(NamespaceFindings); !slices.Equal(got, want) {
 		t.Fatalf("unexpected namespace finding order: got %v want %v", got, want)
 	}
 }
@@ -199,12 +199,12 @@ func TestSortSeccompFindingsOrdersByRiskThenThread(t *testing.T) {
 	duplicate := seccompFinding(analyze.HighRisk, 9, 9, "a")
 	duplicate.Title = highTgid1Tid1.Title
 
-	seccompFindings = []*model.Finding{highTgid2Tid1, medium, duplicate, highTgid1Tid2, highTgid1Tid1}
+	SeccompFindings = []*model.Finding{highTgid2Tid1, medium, duplicate, highTgid1Tid2, highTgid1Tid1}
 	sortSeccompFindings()
 
 	want := []*model.Finding{highTgid1Tid1, highTgid1Tid2, highTgid2Tid1, medium}
-	if !findingsHaveSamePointers(seccompFindings, want) {
-		t.Fatalf("unexpected seccomp finding order: got %#v", seccompFindings)
+	if !findingsHaveSamePointers(SeccompFindings, want) {
+		t.Fatalf("unexpected seccomp finding order: got %#v", SeccompFindings)
 	}
 }
 
@@ -217,11 +217,11 @@ func TestSortMountFindingsOrdersByRiskThenNormalizedMountPoint(t *testing.T) {
 	medium := mountFinding(analyze.MediumRisk, "medium", []string{"/a"}, "d")
 	duplicate := mountFinding(analyze.HighRisk, "run", []string{"/run"}, "c")
 
-	mountFindings = []*model.Finding{medium, highRun, duplicate, highDevVar, highEtc}
+	MountFindings = []*model.Finding{medium, highRun, duplicate, highDevVar, highEtc}
 	sortMountFindings()
 
 	want := []string{"dev-var:b", "etc:a", "run:c", "medium:d"}
-	if got := mountSignatures(mountFindings); !slices.Equal(got, want) {
+	if got := mountSignatures(MountFindings); !slices.Equal(got, want) {
 		t.Fatalf("unexpected mount finding order: got %v want %v", got, want)
 	}
 }
@@ -236,7 +236,7 @@ func TestSortCapabilitiesFindingsOrdersByRiskCapabilityAndThread(t *testing.T) {
 	medium := capabilityFinding(analyze.MediumRisk, "CAP_SYS_TIME", 1, 9, "e")
 	duplicate := capabilityFinding(analyze.HighRisk, "CAP_BPF", 9, 9, "c")
 
-	capabilitiesFindings = []*model.Finding{
+	CapabilitiesFindings = []*model.Finding{
 		medium,
 		highBpfTgid2Tid1,
 		duplicate,
@@ -253,8 +253,8 @@ func TestSortCapabilitiesFindingsOrdersByRiskCapabilityAndThread(t *testing.T) {
 		highBpfTgid2Tid1,
 		medium,
 	}
-	if !findingsHaveSamePointers(capabilitiesFindings, want) {
-		t.Fatalf("unexpected capabilities finding order: got %#v", capabilitiesFindings)
+	if !findingsHaveSamePointers(CapabilitiesFindings, want) {
+		t.Fatalf("unexpected capabilities finding order: got %#v", CapabilitiesFindings)
 	}
 }
 
@@ -298,16 +298,16 @@ func TestSortFindingsByCategoryResetsAndPopulatesEachCategory(t *testing.T) {
 	secondCapability := capabilityFinding(analyze.HighRisk, "CAP_AUDIT_WRITE", 2, 3, "cap-new")
 	SortFindingsByCategory([]*model.Finding{secondMount, secondCapability, secondSeccomp, secondNamespace})
 
-	if len(namespaceFindings) != 1 || namespaceFindings[0] != secondNamespace {
-		t.Fatalf("expected namespace findings to be reset and refilled, got %#v", namespaceFindings)
+	if len(NamespaceFindings) != 1 || NamespaceFindings[0] != secondNamespace {
+		t.Fatalf("expected namespace findings to be reset and refilled, got %#v", NamespaceFindings)
 	}
-	if len(seccompFindings) != 1 || seccompFindings[0] != secondSeccomp {
-		t.Fatalf("expected seccomp findings to be reset and refilled, got %#v", seccompFindings)
+	if len(SeccompFindings) != 1 || SeccompFindings[0] != secondSeccomp {
+		t.Fatalf("expected seccomp findings to be reset and refilled, got %#v", SeccompFindings)
 	}
-	if len(mountFindings) != 1 || mountFindings[0] != secondMount {
-		t.Fatalf("expected mount findings to be reset and refilled, got %#v", mountFindings)
+	if len(MountFindings) != 1 || MountFindings[0] != secondMount {
+		t.Fatalf("expected mount findings to be reset and refilled, got %#v", MountFindings)
 	}
-	if len(capabilitiesFindings) != 1 || capabilitiesFindings[0] != secondCapability {
-		t.Fatalf("expected capabilities findings to be reset and refilled, got %#v", capabilitiesFindings)
+	if len(CapabilitiesFindings) != 1 || CapabilitiesFindings[0] != secondCapability {
+		t.Fatalf("expected capabilities findings to be reset and refilled, got %#v", CapabilitiesFindings)
 	}
 }

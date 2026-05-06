@@ -43,17 +43,22 @@ func writeJSONFile(jsons []byte, Type string) error {
 			return err
 		}
 		defer fd.Close()
+	case "":
+		defer fd.Close()
 	default:
-		return fmt.Errorf("internal/report/writer.go: unknown finding category, unable to create json file")
+		defer fd.Close()
+		return fmt.Errorf(fmt.Sprintf("internal/report/writer.go: unknown finding category %s, unable to create json file", Type))
 	}
-
-	_, err = fd.Write(jsons)
-	return err
+	if fd != nil {
+		_, err = fd.Write(jsons)
+		return err
+	}
+	return nil
 }
 
 // WriteFindingsAsJSON is expected to be called once for each category
 func WriteFindingsAsJSON(findings []*model.Finding) error {
-	jsons, err, Type := FindingsToJSON(findings)
+	jsons, err, Type := findingsToJSON(findings)
 	if err != nil {
 		return err
 	}

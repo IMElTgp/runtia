@@ -10,7 +10,7 @@ import "github.com/IMElTgp/container-runtime-analysis/internal/model"
 // for hard-coded signal pairs, generate a composited signal and mark both of the signals in that pair as "covered"
 // "covered" signals may still involve composition, but are not going to be turned into findings
 
-func GenerateFindings(signals []*model.Signal) (findings []*model.Finding) {
+func GenerateFindings(signals []model.Signal) (findings []*model.Finding) {
 	for _, sig := range signals {
 		findings = append(findings, &model.Finding{
 			Category:        sig.Category,

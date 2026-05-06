@@ -1,0 +1,632 @@
+[
+ {
+  "Category": "capabilities",
+  "RiskLevel": 5,
+  "Title": "Thread has CAP_DAC_OVERRIDE in its effective capability set",
+  "Summary": "The thread has CAP_DAC_OVERRIDE in its effective capability set. This capability is active for current kernel permission checks. It can bypass discretionary file read, write, and execute permission checks for reachable files.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_DAC_OVERRIDE",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_DAC_OVERRIDE from CapEff unless the workload has a reviewed, narrow need for it. Remove writable host paths and mount sensitive paths read-only with nodev, nosuid, and noexec where possible. For ordinary application containers, require an explicit exception before retaining this capability. Keep seccomp filtering enabled; when this capability is combined with SeccompMode 0, treat the workload as a stronger hardening priority. Check possible composite exposure: sensitive writable mounts such as /host, /rootfs, /etc, /run, or /var/run can turn DAC bypass into a host-impacting issue."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 4,
+  "Title": "Thread has CAP_MKNOD in its effective capability set",
+  "Summary": "The thread has CAP_MKNOD in its effective capability set. This capability is active for current kernel permission checks. It can create device nodes; combined with permissive device cgroups or host mounts this can expose host devices.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_MKNOD",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_MKNOD from CapEff unless the workload has a reviewed, narrow need for it. Drop it and keep /dev or device-related paths non-writable; enforce a restrictive device cgroup policy. For ordinary application containers, require an explicit exception before retaining this capability. Keep seccomp filtering enabled; when this capability is combined with SeccompMode 0, treat the workload as a stronger hardening priority. Check possible composite exposure: writable /dev or device-related mounts can let this create device nodes that reach host devices."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 4,
+  "Title": "Thread has CAP_NET_RAW in its effective capability set",
+  "Summary": "The thread has CAP_NET_RAW in its effective capability set. This capability is active for current kernel permission checks. It can create raw and packet sockets, enabling packet spoofing, sniffing, and broader network attack surface.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_NET_RAW",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_NET_RAW from CapEff unless the workload has a reviewed, narrow need for it. Drop it for services that do not need raw sockets and keep seccomp or LSM policy blocking raw socket creation where possible. For ordinary application containers, require an explicit exception before retaining this capability. Keep seccomp filtering enabled; when this capability is combined with SeccompMode 0, treat the workload as a stronger hardening priority. Check possible composite exposure: shared or host network namespaces can turn raw sockets into packet sniffing or spoofing paths outside the workload."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 4,
+  "Title": "Thread has CAP_SETFCAP in its effective capability set",
+  "Summary": "The thread has CAP_SETFCAP in its effective capability set. This capability is active for current kernel permission checks. It can set file capabilities and affects some user-namespace UID 0 mapping paths, enabling capability persistence or transfer.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_SETFCAP",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_SETFCAP from CapEff unless the workload has a reviewed, narrow need for it. Use read-only or noexec/nosuid writable mounts and remove this capability unless the process intentionally manages file capabilities. For ordinary application containers, require an explicit exception before retaining this capability. Keep seccomp filtering enabled; when this capability is combined with SeccompMode 0, treat the workload as a stronger hardening priority. Check possible composite exposure: rw executable mounts without noexec can let this persist or transfer capabilities through files."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 4,
+  "Title": "Thread has CAP_SETPCAP in its effective capability set",
+  "Summary": "The thread has CAP_SETPCAP in its effective capability set. This capability is active for current kernel permission checks. It can modify capability state, alter inheritable capabilities, drop capabilities from the bounding set, and change securebits.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_SETPCAP",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_SETPCAP from CapEff unless the workload has a reviewed, narrow need for it. Keep capability sets fixed at container start and remove this capability from processes that do not manage capabilities intentionally. For ordinary application containers, require an explicit exception before retaining this capability. Keep seccomp filtering enabled; when this capability is combined with SeccompMode 0, treat the workload as a stronger hardening priority. Check possible composite exposure: permitted, ambient, inheritable, or bounding capabilities can be reshaped into later privilege changes."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 3,
+  "Title": "Thread has CAP_FOWNER in its effective capability set",
+  "Summary": "The thread has CAP_FOWNER in its effective capability set. This capability is active for current kernel permission checks. It can bypass many ownership checks for file operations, including permission changes, ACL updates, sticky-bit deletions, and O_NOATIME use.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_FOWNER",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_FOWNER from CapEff unless the workload has a reviewed, narrow need for it. Drop this capability for ordinary services and avoid writable sensitive mounts where metadata changes matter. Keep seccomp filtering enabled; when this capability is combined with SeccompMode 0, treat the workload as a stronger hardening priority. Check possible composite exposure: writable host or shared mounts can make ownership-check bypasses affect files outside the intended container boundary."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 3,
+  "Title": "Thread has CAP_SETGID in its effective capability set",
+  "Summary": "The thread has CAP_SETGID in its effective capability set. This capability is active for current kernel permission checks. It can change group IDs, set supplementary groups, forge UNIX socket GID credentials, and write GID mappings in a user namespace.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_SETGID",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_SETGID from CapEff unless the workload has a reviewed, narrow need for it. Drop it unless the process must manage identities; keep user namespace mappings minimal and reviewed. Keep seccomp filtering enabled; when this capability is combined with SeccompMode 0, treat the workload as a stronger hardening priority. Check possible composite exposure: broad GID mappings, writable files, or shared UNIX sockets can make group changes affect more resources than expected."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 3,
+  "Title": "Thread has CAP_SETUID in its effective capability set",
+  "Summary": "The thread has CAP_SETUID in its effective capability set. This capability is active for current kernel permission checks. It can change user IDs, forge UNIX socket UID credentials, and write UID mappings in a user namespace.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_SETUID",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_SETUID from CapEff unless the workload has a reviewed, narrow need for it. Drop it for fixed-identity services and combine user namespace use with no_new_privs where possible. Keep seccomp filtering enabled; when this capability is combined with SeccompMode 0, treat the workload as a stronger hardening priority. Check possible composite exposure: broad UID mappings, setuid files, or sensitive writable mounts can turn UID changes into stronger privilege transitions."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 3,
+  "Title": "Thread has CAP_SYS_CHROOT in its effective capability set",
+  "Summary": "The thread has CAP_SYS_CHROOT in its effective capability set. This capability is active for current kernel permission checks. It can use chroot and setns into mount namespaces, which is mostly a composition risk with mounts and other privileges.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_SYS_CHROOT",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_SYS_CHROOT from CapEff unless the workload has a reviewed, narrow need for it. Drop it unless the workload intentionally manages roots; keep mount namespaces private and sensitive mounts read-only. Keep seccomp filtering enabled; when this capability is combined with SeccompMode 0, treat the workload as a stronger hardening priority. Check possible composite exposure: writable root-like mounts or mount namespace transitions can make chroot part of a broader escape path."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 2,
+  "Title": "Thread has CAP_AUDIT_WRITE in its effective capability set",
+  "Summary": "The thread has CAP_AUDIT_WRITE in its effective capability set. This capability is active for current kernel permission checks. It can write to the kernel audit log, which can pollute or obscure audit evidence.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_AUDIT_WRITE",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_AUDIT_WRITE from CapEff unless the workload has a reviewed, narrow need for it. Drop it unless the container is a trusted audit component and route application logs through normal logging paths. Check possible composite exposure: shared audit visibility can let noisy or misleading audit records obscure host or workload events."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 2,
+  "Title": "Thread has CAP_CHOWN in its effective capability set",
+  "Summary": "The thread has CAP_CHOWN in its effective capability set. This capability is active for current kernel permission checks. It can change file owner and group IDs, so writable files or host mounts can become a stronger escalation path.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_CHOWN",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_CHOWN from CapEff unless the workload has a reviewed, narrow need for it. Prefer read-only mounts for host or sensitive paths and avoid granting write access to files whose ownership controls access. Check possible composite exposure: writable host or sensitive mounts can let ownership changes support persistence or privilege escalation."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 2,
+  "Title": "Thread has CAP_FSETID in its effective capability set",
+  "Summary": "The thread has CAP_FSETID in its effective capability set. This capability is active for current kernel permission checks. It can preserve or set set-user-ID and set-group-ID bits where they would normally be cleared or rejected.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_FSETID",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_FSETID from CapEff unless the workload has a reviewed, narrow need for it. Use nosuid on writable mounts and remove unnecessary setuid or setgid files from the image. Check possible composite exposure: writable executable paths with setuid or setgid files can preserve privilege-transition paths."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 2,
+  "Title": "Thread has CAP_KILL in its effective capability set",
+  "Summary": "The thread has CAP_KILL in its effective capability set. This capability is active for current kernel permission checks. It can bypass permission checks for sending signals, which is more sensitive when the container shares a PID namespace.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_KILL",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_KILL from CapEff unless the workload has a reviewed, narrow need for it. Use a private PID namespace and avoid running unrelated processes in the same PID namespace. Check possible composite exposure: a shared PID namespace or multiple different Tgid values in the same namespace can let this thread disrupt other processes."
+ },
+ {
+  "Category": "capabilities",
+  "RiskLevel": 1,
+  "Title": "Thread has CAP_NET_BIND_SERVICE in its effective capability set",
+  "Summary": "The thread has CAP_NET_BIND_SERVICE in its effective capability set. This capability is active for current kernel permission checks. It allows binding Internet ports below 1024; this is usually low risk but should still be scoped to workloads that need privileged ports.",
+  "Evidence": [
+   "tid=43205, tgid=43205, comm=\"sleep\", main_thread=true",
+   "CapEff=0x00000000a80425fb includes CAP_NET_BIND_SERVICE",
+   "userns=unknown, mntns=unknown, pidns=unknown"
+  ],
+  "RelativeThreads": [
+   {
+    "Tid": 43205,
+    "Tgid": 43205,
+    "Comm": "sleep\n",
+    "IsMainThread": true,
+    "UserNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "MntNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "PIDNS": {
+     "Type": "",
+     "Dev": 0,
+     "Ino": 0
+    },
+    "CapInh": 0,
+    "CapPrm": 2818844155,
+    "CapEff": 2818844155,
+    "CapBnd": 2818844155,
+    "CapAmb": 0,
+    "SeccompMode": 0,
+    "SeccompFilters": 0,
+    "NoNewPrivs": false
+   }
+  ],
+  "RelativeNS": null,
+  "MountPoint": null,
+  "Recommendation": "Drop CAP_NET_BIND_SERVICE from CapEff unless the workload has a reviewed, narrow need for it. Prefer high container ports with runtime port mapping when the process does not need to bind privileged ports itself. Check possible composite exposure: host networking can make privileged-port binding affect the host network namespace directly."
+ }
+]

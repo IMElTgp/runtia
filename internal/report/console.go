@@ -126,10 +126,10 @@ func PrintToTerminal(exampleFindings []*model.Finding) {
 	// pick at most 6 findings as representative findings
 	selected := make([]*model.Finding, 0, maxRepresentativeTotal)
 	categories := [][]*model.Finding{
-		namespaceFindings,
-		seccompFindings,
-		capabilitiesFindings,
-		mountFindings,
+		NamespaceFindings,
+		SeccompFindings,
+		CapabilitiesFindings,
+		MountFindings,
 	}
 	// for each category, pick representative findings separately
 	for _, findings := range categories {

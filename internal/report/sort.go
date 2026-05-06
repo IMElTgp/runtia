@@ -16,10 +16,10 @@ import (
 
 // store findings by categories
 var (
-	namespaceFindings    []*model.Finding
-	seccompFindings      []*model.Finding
-	mountFindings        []*model.Finding
-	capabilitiesFindings []*model.Finding
+	NamespaceFindings    = make([]*model.Finding, 0)
+	SeccompFindings      = make([]*model.Finding, 0)
+	MountFindings        = make([]*model.Finding, 0)
+	CapabilitiesFindings = make([]*model.Finding, 0)
 )
 
 // fill above findings by category
@@ -27,13 +27,13 @@ func fillFindings(findings []*model.Finding) {
 	for _, finding := range findings {
 		switch finding.Category {
 		case "namespace":
-			namespaceFindings = append(namespaceFindings, finding)
+			NamespaceFindings = append(NamespaceFindings, finding)
 		case "seccomp":
-			seccompFindings = append(seccompFindings, finding)
+			SeccompFindings = append(SeccompFindings, finding)
 		case "mount":
-			mountFindings = append(mountFindings, finding)
+			MountFindings = append(MountFindings, finding)
 		case "capabilities":
-			capabilitiesFindings = append(capabilitiesFindings, finding)
+			CapabilitiesFindings = append(CapabilitiesFindings, finding)
 		default:
 			// for further composition
 		}
@@ -90,68 +90,68 @@ func nsTypeRank(ns1, ns2 *target.NSRef) bool {
 // sortNamespaceFindings sorts namespace-related findings
 // according 4 rules (with descending priorities)
 func sortNamespaceFindings() {
-	namespaceFindings = removeDuplicates(namespaceFindings)
-	sort.Slice(namespaceFindings, func(i, j int) bool {
-		if namespaceFindings[i].RiskLevel != namespaceFindings[j].RiskLevel {
+	NamespaceFindings = removeDuplicates(NamespaceFindings)
+	sort.Slice(NamespaceFindings, func(i, j int) bool {
+		if NamespaceFindings[i].RiskLevel != NamespaceFindings[j].RiskLevel {
 			// rule1 (highest priority): risk level (decreasing)
-			return namespaceFindings[i].RiskLevel > namespaceFindings[j].RiskLevel
-		} else if namespaceFindings[i].RelativeNS.Type != namespaceFindings[j].RelativeNS.Type {
+			return NamespaceFindings[i].RiskLevel > NamespaceFindings[j].RiskLevel
+		} else if NamespaceFindings[i].RelativeNS.Type != NamespaceFindings[j].RelativeNS.Type {
 			// rule2: type (user > pid > mnt)
-			return nsTypeRank(namespaceFindings[i].RelativeNS, namespaceFindings[j].RelativeNS)
-		} else if namespaceFindings[i].RelativeNS.Dev != namespaceFindings[j].RelativeNS.Dev {
+			return nsTypeRank(NamespaceFindings[i].RelativeNS, NamespaceFindings[j].RelativeNS)
+		} else if NamespaceFindings[i].RelativeNS.Dev != NamespaceFindings[j].RelativeNS.Dev {
 			// rule3: dev
-			return namespaceFindings[i].RelativeNS.Dev < namespaceFindings[j].RelativeNS.Dev
+			return NamespaceFindings[i].RelativeNS.Dev < NamespaceFindings[j].RelativeNS.Dev
 		}
 		// rule4: ino
-		return namespaceFindings[i].RelativeNS.Ino < namespaceFindings[j].RelativeNS.Ino
+		return NamespaceFindings[i].RelativeNS.Ino < NamespaceFindings[j].RelativeNS.Ino
 	})
 }
 
 // sortSeccompFindings sorts seccomp-related findings
 func sortSeccompFindings() {
-	seccompFindings = removeDuplicates(seccompFindings)
-	sort.Slice(seccompFindings, func(i, j int) bool {
-		if seccompFindings[i].RiskLevel != seccompFindings[j].RiskLevel {
+	SeccompFindings = removeDuplicates(SeccompFindings)
+	sort.Slice(SeccompFindings, func(i, j int) bool {
+		if SeccompFindings[i].RiskLevel != SeccompFindings[j].RiskLevel {
 			// rule1: risk level
-			return seccompFindings[i].RiskLevel > seccompFindings[j].RiskLevel
-		} else if seccompFindings[i].RelativeThreads[0].Tgid != seccompFindings[j].RelativeThreads[0].Tgid {
+			return SeccompFindings[i].RiskLevel > SeccompFindings[j].RiskLevel
+		} else if SeccompFindings[i].RelativeThreads[0].Tgid != SeccompFindings[j].RelativeThreads[0].Tgid {
 			// rule2: tgid
-			return seccompFindings[i].RelativeThreads[0].Tgid < seccompFindings[j].RelativeThreads[0].Tgid
+			return SeccompFindings[i].RelativeThreads[0].Tgid < SeccompFindings[j].RelativeThreads[0].Tgid
 		}
 		// rule3: tid
-		return seccompFindings[i].RelativeThreads[0].Tid < seccompFindings[j].RelativeThreads[0].Tid
+		return SeccompFindings[i].RelativeThreads[0].Tid < SeccompFindings[j].RelativeThreads[0].Tid
 	})
 }
 
 // sortMountFindings sorts mount-related findings
 func sortMountFindings() {
-	mountFindings = removeDuplicates(mountFindings)
-	sort.Slice(mountFindings, func(i, j int) bool {
-		if mountFindings[i].RiskLevel != mountFindings[j].RiskLevel {
+	MountFindings = removeDuplicates(MountFindings)
+	sort.Slice(MountFindings, func(i, j int) bool {
+		if MountFindings[i].RiskLevel != MountFindings[j].RiskLevel {
 			// rule1: risk level
-			return mountFindings[i].RiskLevel > mountFindings[j].RiskLevel
+			return MountFindings[i].RiskLevel > MountFindings[j].RiskLevel
 		}
 		// rule2: mountpoint (in alphabet order)
-		return util.JoinStringSlice(mountFindings[i].MountPoint) < util.JoinStringSlice(mountFindings[j].MountPoint)
+		return util.JoinStringSlice(MountFindings[i].MountPoint) < util.JoinStringSlice(MountFindings[j].MountPoint)
 	})
 }
 
 // sortCapabilitiesFindings sorts capabilities-related findings
 func sortCapabilitiesFindings() {
-	capabilitiesFindings = removeDuplicates(capabilitiesFindings)
-	sort.Slice(capabilitiesFindings, func(i, j int) bool {
-		if capabilitiesFindings[i].RiskLevel != capabilitiesFindings[j].RiskLevel {
+	CapabilitiesFindings = removeDuplicates(CapabilitiesFindings)
+	sort.Slice(CapabilitiesFindings, func(i, j int) bool {
+		if CapabilitiesFindings[i].RiskLevel != CapabilitiesFindings[j].RiskLevel {
 			// rule1: risk level
-			return capabilitiesFindings[i].RiskLevel > capabilitiesFindings[j].RiskLevel
-		} else if analyze.ParseCapabilityNameFromFinding(capabilitiesFindings[i]) != analyze.ParseCapabilityNameFromFinding(capabilitiesFindings[j]) {
+			return CapabilitiesFindings[i].RiskLevel > CapabilitiesFindings[j].RiskLevel
+		} else if analyze.ParseCapabilityNameFromFinding(CapabilitiesFindings[i]) != analyze.ParseCapabilityNameFromFinding(CapabilitiesFindings[j]) {
 			// rule2: capability type (alphabet order)
-			return analyze.ParseCapabilityNameFromFinding(capabilitiesFindings[i]) < analyze.ParseCapabilityNameFromFinding(capabilitiesFindings[j])
-		} else if capabilitiesFindings[i].RelativeThreads[0].Tgid != capabilitiesFindings[j].RelativeThreads[0].Tgid {
+			return analyze.ParseCapabilityNameFromFinding(CapabilitiesFindings[i]) < analyze.ParseCapabilityNameFromFinding(CapabilitiesFindings[j])
+		} else if CapabilitiesFindings[i].RelativeThreads[0].Tgid != CapabilitiesFindings[j].RelativeThreads[0].Tgid {
 			// rule3: tgid
-			return capabilitiesFindings[i].RelativeThreads[0].Tgid < capabilitiesFindings[j].RelativeThreads[0].Tgid
+			return CapabilitiesFindings[i].RelativeThreads[0].Tgid < CapabilitiesFindings[j].RelativeThreads[0].Tgid
 		}
 		// rule4: tid
-		return capabilitiesFindings[i].RelativeThreads[0].Tid < capabilitiesFindings[j].RelativeThreads[0].Tid
+		return CapabilitiesFindings[i].RelativeThreads[0].Tid < CapabilitiesFindings[j].RelativeThreads[0].Tid
 	})
 }
 
@@ -172,10 +172,10 @@ func SortFindings(findings []*model.Finding) []*model.Finding {
 // SortFindingsByCategory sorts findings separately by category
 func SortFindingsByCategory(findings []*model.Finding) {
 	// clear all finding slices before filling
-	namespaceFindings = []*model.Finding{}
-	seccompFindings = []*model.Finding{}
-	mountFindings = []*model.Finding{}
-	capabilitiesFindings = []*model.Finding{}
+	NamespaceFindings = []*model.Finding{}
+	SeccompFindings = []*model.Finding{}
+	MountFindings = []*model.Finding{}
+	CapabilitiesFindings = []*model.Finding{}
 
 	fillFindings(findings)
 
