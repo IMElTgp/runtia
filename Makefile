@@ -1,6 +1,6 @@
 APP := runtia
 GO ?= go
-SRC := ./src
+SRC := ./cmd
 OUT := ./bin/$(APP)
 INSTALL_DIR ?= $(HOME)/.local/bin
 GOCACHE ?= $(CURDIR)/.cache/go-build
@@ -16,6 +16,7 @@ install: build
 	cp $(OUT) $(INSTALL_DIR)/$(APP)
 	chmod +x $(INSTALL_DIR)/$(APP)
 	@printf 'installed %s\n' "$(INSTALL_DIR)/$(APP)"
+	@printf 'make sure %s is in PATH to run `%s` directly\n' "$(INSTALL_DIR)" "$(APP)"
 
 run: build
 	$(OUT) $(ARGS)

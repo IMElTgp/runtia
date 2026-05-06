@@ -90,13 +90,25 @@ Only categories with findings are written.
 
 ## Build And Run
 
-Build:
+Recommended local install:
 
 ```bash
-go build -o ./bin/runtia ./cmd
+make install
 ```
 
-Run against a live Docker container:
+If `~/.local/bin` is already in your `PATH`, you can then run:
+
+```bash
+runtia --container-id <container-id>
+```
+
+Direct build without installation:
+
+```bash
+make build
+```
+
+Run the local binary from the repository:
 
 ```bash
 ./bin/runtia --container-id <container-id>
@@ -106,7 +118,7 @@ Example:
 
 ```bash
 docker run -d --rm --name runtia-demo --security-opt seccomp=unconfined alpine sleep 600
-./bin/runtia --container-id runtia-demo
+runtia --container-id runtia-demo
 docker rm -f runtia-demo
 ```
 
