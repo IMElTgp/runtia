@@ -19,6 +19,61 @@ const (
 	maxRepresentativeTotal       = 6
 )
 
+const (
+	Reset  = "\033[0m"
+	Red    = "\033[31m"
+	Green  = "\033[32m"
+	Yellow = "\033[33m"
+	Orange = "\033[38;2;255;128;0m"
+)
+
+func printRed(text ...any) {
+	fmt.Print(Red)
+	for _, t := range text {
+		fmt.Print(t)
+	}
+	fmt.Println(Reset)
+}
+
+func printGreen(text ...any) {
+	fmt.Print(Green)
+	for _, t := range text {
+		fmt.Print(t)
+	}
+	fmt.Println(Reset)
+}
+
+func printYellow(text ...any) {
+	fmt.Print(Yellow)
+	for _, t := range text {
+		fmt.Print(t)
+	}
+	fmt.Println(Reset)
+}
+
+func printOrange(text ...any) {
+	fmt.Print(Orange)
+	for _, t := range text {
+		fmt.Print(t)
+	}
+	fmt.Println(Reset)
+}
+
+func printAccordingToColor(color string, text ...any) {
+	switch color {
+	case "red":
+		printRed(text)
+	case "green":
+		printGreen(text)
+	case "yellow":
+		printYellow(text)
+	case "orange":
+		printOrange(text)
+	default:
+		fmt.Println(text)
+	}
+}
+
 func riskLevelLabel(risk int) string {
 	switch risk {
 	case analyze.Fatal:
@@ -38,9 +93,25 @@ func riskLevelLabel(risk int) string {
 
 // printOneFinding determines how to print one finding to the terminal
 func printOneFinding(finding *model.Finding) {
+	var color string
+	switch finding.RiskLevel {
+	case analyze.Fatal:
+		color = "red"
+	case analyze.HighRisk:
+		color = "orange"
+	case analyze.MediumRisk:
+		color = "yellow"
+	case analyze.LowRisk:
+		color = "default"
+	case analyze.Info, analyze.Safe:
+		color = "green"
+	default:
+		color = "default"
+	}
+
 	fmt.Println("Risk Category:", finding.Category)
-	fmt.Println("Risk Level:", riskLevelLabel(finding.RiskLevel))
-	fmt.Println("Finding Title:", finding.Title)
+	printAccordingToColor(color, "Risk Level:", riskLevelLabel(finding.RiskLevel))
+	printAccordingToColor(color, "Finding Title:", finding.Title)
 	if finding.Summary != "" {
 		fmt.Println("Summary:", finding.Summary)
 	}
@@ -117,11 +188,11 @@ func PrintToTerminal(exampleFindings []*model.Finding) {
 
 	// count the frequency of each risk level
 	fmt.Println("Findings Summary:")
-	fmt.Println(" Fatal:", countByRisk(exampleFindings, analyze.Fatal))
-	fmt.Println(" HighRisk:", countByRisk(exampleFindings, analyze.HighRisk))
-	fmt.Println(" MediumRisk:", countByRisk(exampleFindings, analyze.MediumRisk))
+	printRed(" Fatal:", countByRisk(exampleFindings, analyze.Fatal))
+	printOrange(" HighRisk:", countByRisk(exampleFindings, analyze.HighRisk))
+	printYellow(" MediumRisk:", countByRisk(exampleFindings, analyze.MediumRisk))
 	fmt.Println(" LowRisk:", countByRisk(exampleFindings, analyze.LowRisk))
-	fmt.Println(" Info:", countByRisk(exampleFindings, analyze.Info))
+	printGreen(" Info:", countByRisk(exampleFindings, analyze.Info))
 
 	// pick at most 6 findings as representative findings
 	selected := make([]*model.Finding, 0, maxRepresentativeTotal)
@@ -149,6 +220,7 @@ func PrintToTerminal(exampleFindings []*model.Finding) {
 		fmt.Println("No Fatal/HighRisk findings to highlight in terminal.")
 		return
 	}
+	selected = SortFindings(selected)
 
 	fmt.Println()
 	fmt.Println("Representative Fatal/HighRisk Findings:")
@@ -157,5 +229,5 @@ func PrintToTerminal(exampleFindings []*model.Finding) {
 		fmt.Printf("[%d/%d]\n", i+1, len(selected))
 		printOneFinding(finding)
 	}
-	fmt.Println("See all findings in ./namespace.json, ./mount.json, ./seccomp.json or ./capabilities.json. If one of those files doesn't exist, that means there's no risk of that category that is found.")
+	fmt.Println("\nSee all findings in ./namespace.json, ./mount.json, ./seccomp.json or ./capabilities.json. If one of those files doesn't exist, that means there's no risk of that category that is found.")
 }

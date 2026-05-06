@@ -21,16 +21,14 @@ func (c *Config) run() error {
 	if c.ContainerID == "" {
 		return fmt.Errorf("failed to start: no valid container ID provided")
 	}
-	//TODO
 	// target
+	fmt.Println("===================================================")
+	fmt.Println("Started resolving provided container ID...")
+	fmt.Println("===================================================")
 	cgroupPath, err := target.ResolveCgroupPath(c.ContainerID)
 	if err != nil {
 		return err
 	}
-	// threads, err := target.RetrieveAllThreads(cgroupPath)
-	// if err != nil {
-	// 	return err
-	// }
 	// snapshot
 	metadata := model.Metadata{
 		CollectedAt: time.Now(),
@@ -38,6 +36,9 @@ func (c *Config) run() error {
 		InitPID:     c.PID,
 		CgroupPath:  cgroupPath,
 	}
+	fmt.Println("===================================================")
+	fmt.Println("Started collection at", metadata.CollectedAt, "...")
+	fmt.Println("===================================================")
 	snapshot, err := model.DoSnapshot(metadata)
 	if err != nil {
 		return err
@@ -47,13 +48,17 @@ func (c *Config) run() error {
 		Snapshot: snapshot,
 		Signals:  make([]model.Signal, 0),
 	}
+	fmt.Println("===================================================")
+	fmt.Println("Started analyzing...")
+	fmt.Println("===================================================")
 	r.Entry()
-
-	findings := report.GenerateFindings(r.Signals)
 	// report
+	findings := report.GenerateFindings(r.Signals)
 	findings = report.SortFindings(findings)
 	report.SortFindingsByCategory(findings)
-
+	fmt.Println("===================================================")
+	fmt.Println("Started outputting report...")
+	fmt.Println("===================================================")
 	if c.PrintToTerminal {
 		report.PrintToTerminal(findings)
 	}
