@@ -25,6 +25,7 @@ func (c *Config) run() error {
 	fmt.Println("===================================================")
 	fmt.Println("Started resolving provided container ID...")
 	fmt.Println("===================================================")
+	fmt.Println()
 	cgroupPath, err := target.ResolveCgroupPath(c.ContainerID)
 	if err != nil {
 		return err
@@ -39,6 +40,7 @@ func (c *Config) run() error {
 	fmt.Println("===================================================")
 	fmt.Println("Started collection at", metadata.CollectedAt, "...")
 	fmt.Println("===================================================")
+	fmt.Println()
 	snapshot, err := model.DoSnapshot(metadata)
 	if err != nil {
 		return err
@@ -51,6 +53,7 @@ func (c *Config) run() error {
 	fmt.Println("===================================================")
 	fmt.Println("Started analyzing...")
 	fmt.Println("===================================================")
+	fmt.Println()
 	r.Entry()
 	// report
 	findings := report.GenerateFindings(r.Signals)
@@ -59,6 +62,7 @@ func (c *Config) run() error {
 	fmt.Println("===================================================")
 	fmt.Println("Started outputting report...")
 	fmt.Println("===================================================")
+	fmt.Println()
 	if c.PrintToTerminal {
 		report.PrintToTerminal(findings)
 	}

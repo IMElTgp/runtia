@@ -2,3 +2,5 @@
 *.json
 *.md
 !README.md
+*.pdf
+*.png

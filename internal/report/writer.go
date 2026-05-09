@@ -44,10 +44,8 @@ func writeJSONFile(jsons []byte, Type string) error {
 		}
 		defer fd.Close()
 	case "":
-		defer fd.Close()
 	default:
-		defer fd.Close()
-		return fmt.Errorf(fmt.Sprintf("internal/report/writer.go: unknown finding category %s, unable to create json file", Type))
+		return fmt.Errorf("internal/report/writer.go: unknown finding category %s, unable to create json file", Type)
 	}
 	if fd != nil {
 		_, err = fd.Write(jsons)

@@ -62,15 +62,15 @@ func printOrange(text ...any) {
 func printAccordingToColor(color string, text ...any) {
 	switch color {
 	case "red":
-		printRed(text)
+		printRed(text...)
 	case "green":
-		printGreen(text)
+		printGreen(text...)
 	case "yellow":
-		printYellow(text)
+		printYellow(text...)
 	case "orange":
-		printOrange(text)
+		printOrange(text...)
 	default:
-		fmt.Println(text)
+		fmt.Println(text...)
 	}
 }
 

@@ -4,6 +4,14 @@ Runtia is a Linux host-side CLI for inspecting the effective runtime security st
 
 It does not scan images or manifests. It inspects the live container from the host through `/proc`, namespace references, mount information, seccomp state, and capability sets, then reports findings that weaken container isolation.
 
+## Threat Model
+
+Runtia focuses on runtime configuration that expands the attack surface of a container after an attacker can already execute code inside it or control one or more threads inside it.
+
+It does not assume the attacker always has container-root privileges, and it does not try to judge how the attacker entered the container in the first place.
+
+The tool does not claim that a container escape has already happened. It identifies runtime conditions that can make host impact, cross-container impact, or kernel attack-surface expansion more plausible.
+
 ## MVP Status
 
 Runtia has reached a usable MVP stage.
@@ -21,6 +29,12 @@ The current implementation has already been verified against:
 - a low-risk baseline container
 - a container with `seccomp=unconfined`
 - a container with `CAP_SYS_ADMIN`
+
+## Why Thread-Level Analysis
+
+Container runtimes usually assign namespace, seccomp, capability, and mount-related state when the container starts, but the kernel ultimately enforces much of that state on a per-thread execution path.
+
+Later `execve`, capability transitions, ambient capabilities, `setns`, seccomp filter tree differences, or synchronization failures can produce thread-level differences at runtime. Runtia therefore treats threads as the smallest analysis unit while still using container-level context as background.
 
 ## What It Detects Today
 
@@ -86,7 +100,7 @@ JSON output:
 - `namespace.json`
 - `seccomp.json`
 
-Only categories with findings are written.
+Only categories with findings are written. When no rule matches, Runtia emits no finding for that category.
 
 ## Build And Run
 
@@ -176,7 +190,8 @@ Additional scenarios such as host PID namespace sharing and mount-related edge c
 
 The MVP is in place. The next work is additive rather than foundational:
 
-- expand live validation coverage to more namespace and mount scenarios
-- improve the PID-based target path
-- refine reporting ergonomics and JSON schema
-- tighten error handling and integration tests
+- short term: add hard-coded composition analysis without changing the core CLI model
+- short term: document unified risk-rating criteria and capability-set downgrade rules
+- medium term: expand validation coverage for Fatal, HighRisk, and composition scenarios
+- medium term: improve JSON schema and report ergonomics while keeping backward compatibility
+- long term: consider call-sequence or configuration-sequence analysis as an additional layer, not as the current MVP's core logic
