@@ -12,6 +12,9 @@ import "github.com/IMElTgp/container-runtime-analysis/internal/model"
 
 func GenerateFindings(signals []model.Signal) (findings []*model.Finding) {
 	for _, sig := range signals {
+		if sig.Covered {
+			continue
+		}
 		findings = append(findings, &model.Finding{
 			Category:        sig.Category,
 			Recommendation:  sig.Recommendation,

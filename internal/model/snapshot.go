@@ -51,11 +51,11 @@ func (s *Snapshot) collectMetadata(metadata Metadata) {
 func (s *Snapshot) collectNS() {
 	for mntns := range collect.MntNSThreads {
 		owner, ok := collect.OwnerUserNSByNS[mntns]
-		s.MountNamespaces = append(s.MountNamespaces, NamespaceSnapshot{mntns, owner, collect.MntNSInfo[mntns], ok})
+		s.MountNamespaces = append(s.MountNamespaces, NamespaceSnapshot{mntns, owner, collect.MntNSInfo[mntns], ok && owner.Type == "user"})
 	}
 	for pidns := range collect.PIDNSThreads {
 		owner, ok := collect.OwnerUserNSByNS[pidns]
-		s.PIDNamespaces = append(s.PIDNamespaces, NamespaceSnapshot{pidns, owner, nil, ok})
+		s.PIDNamespaces = append(s.PIDNamespaces, NamespaceSnapshot{pidns, owner, nil, ok && owner.Type == "user"})
 	}
 	for userns := range collect.UserNSThreads {
 		s.UserNamespaces = append(s.UserNamespaces, NamespaceSnapshot{userns, userns, nil, true})

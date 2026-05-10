@@ -22,4 +22,5 @@ func (r *Rule) Entry() {
 	r.AnalyzeSeccomp()
 	r.AnalyzeCapabilities()
 	r.AnalyzeMount()
+	r.AnalyzeComposition()
 }

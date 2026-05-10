@@ -21,6 +21,7 @@ Current MVP capabilities:
 - resolve a running Docker container from `--container-id`
 - collect live runtime facts from the host
 - analyze namespace, seccomp, capability, and mount-related risk signals
+- compose multiple weaker or contextual signals into higher-level hard-coded composition findings
 - print a readable terminal summary with representative high-risk findings
 - write per-category JSON reports for machine consumption
 
@@ -96,6 +97,7 @@ Terminal output:
 JSON output:
 
 - `capabilities.json`
+- `composition.json`
 - `mount.json`
 - `namespace.json`
 - `seccomp.json`
@@ -144,6 +146,8 @@ docker rm -f runtia-demo
 
 This tool is currently oriented around rootful Docker-on-Linux style inspection.
 
+When direct non-root access to `/proc/<pid>/task/<tid>/ns/*` is denied, Runtia can fall back to a privileged Docker helper container to recover namespace identity for analysis. The helper image defaults to `alpine:latest` and can be overridden with `RUNTIA_NAMESPACE_HELPER_IMAGE`.
+
 ## Repository Layout
 
 - `cmd`
@@ -178,20 +182,52 @@ It is a host-side runtime inspector focused on turning live low-level runtime fa
 
 The repository currently includes or references a local runtime risk lab under `./container-risk-lab`.
 
-The following scenarios are already suitable for the current MVP:
+Representative validated scenarios now include:
 
-- `baseline`
-- `seccomp-unconfined`
-- `cap-sys-admin`
+- single-rule:
+  - `baseline`
+  - `seccomp-unconfined`
+  - `cap-sys-admin`
+  - `cap-net-admin`
+  - `cap-bpf`
+  - `cap-sys-module`
+  - `cap-sys-rawio`
+  - `cap-sys-boot`
+  - `cap-net-raw`
+  - `cap-mknod`
+  - `cap-perfmon`
+  - `cap-setfcap`
+  - `cap-setpcap`
+  - `cap-sys-resource`
+  - `cap-dac-read-search`
+  - `cap-dac-override-single`
+  - `host-pidns`
+  - `host-userns`
+  - `shared-mount`
+  - `writable-host-mount`
+- composition:
+  - `seccomp-unconfined-cap-sys-admin`
+  - `seccomp-unconfined-cap-mknod`
+  - `cap-kill-host-pidns`
+  - `cap-sys-ptrace-host-pidns`
+  - `cap-sys-admin-shared-mount`
+  - `no-new-privs-delayed-cap`
+  - `cap-sys-chroot-mountns`
 
-Additional scenarios such as host PID namespace sharing and mount-related edge cases are appropriate next-step validation targets as the runtime coverage is expanded further.
+Current phase-4 validation status is intentionally split into three buckets:
 
-## Next Steps
+- detection verified and exploit/state validation successful
+- detection verified but the chosen exploit probe is blocked by host hardening
+- still pending on another environment
 
-The MVP is in place. The next work is additive rather than foundational:
+For example, `cap-dac-override-writable-host-mount` now detects the dangerous combination correctly, but direct host-file write probes can still be blocked on hardened hosts by SELinux or other LSM and labeling controls.
 
-- short term: add hard-coded composition analysis without changing the core CLI model
-- short term: document unified risk-rating criteria and capability-set downgrade rules
-- medium term: expand validation coverage for Fatal, HighRisk, and composition scenarios
-- medium term: improve JSON schema and report ergonomics while keeping backward compatibility
-- long term: consider call-sequence or configuration-sequence analysis as an additional layer, not as the current MVP's core logic
+## Current Limits
+
+Most remaining gaps are not implementation omissions. They are environment-limited:
+
+- a few `HighRisk` capabilities would require touching host-global state to prove directly on this machine
+- some rules lack a meaningful local test surface on this host
+- some proof paths do not produce a clean, reversible, container-local signal under the current kernel/runtime combination
+
+Examples include `CAP_SYS_TIME`, `CAP_AUDIT_CONTROL`, `CAP_MAC_OVERRIDE`, `CAP_MAC_ADMIN`, and `CAP_CHECKPOINT_RESTORE`.

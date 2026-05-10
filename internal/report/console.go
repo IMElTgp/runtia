@@ -197,6 +197,7 @@ func PrintToTerminal(exampleFindings []*model.Finding) {
 	// pick at most 6 findings as representative findings
 	selected := make([]*model.Finding, 0, maxRepresentativeTotal)
 	categories := [][]*model.Finding{
+		CompositionFindings,
 		NamespaceFindings,
 		SeccompFindings,
 		CapabilitiesFindings,
@@ -229,5 +230,5 @@ func PrintToTerminal(exampleFindings []*model.Finding) {
 		fmt.Printf("[%d/%d]\n", i+1, len(selected))
 		printOneFinding(finding)
 	}
-	fmt.Println("\nSee all findings in ./namespace.json, ./mount.json, ./seccomp.json or ./capabilities.json. If one of those files doesn't exist, that means there's no risk of that category that is found.")
+	fmt.Println("\nSee all findings in ./composition.json, ./namespace.json, ./mount.json, ./seccomp.json or ./capabilities.json. If one of those files doesn't exist, that means there's no risk of that category that is found.")
 }

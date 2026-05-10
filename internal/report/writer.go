@@ -19,6 +19,12 @@ func writeJSONFile(jsons []byte, Type string) error {
 	)
 
 	switch Type {
+	case "composition":
+		fd, err = os.OpenFile("composition.json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			return err
+		}
+		defer fd.Close()
 	case "namespace":
 		fd, err = os.OpenFile("namespace.json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {

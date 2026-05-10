@@ -949,7 +949,6 @@ func switchCapabilities(cap int, s *model.Signal, capType string) *model.Signal 
 // from a capabilities-related signal
 func ParseCapabilityNameFromFinding(finding *model.Finding) string {
 	title := strings.TrimPrefix(finding.Title, "Thread has ")
-	title = strings.TrimSuffix(title, " capability set")
-	capName, _, _ := strings.Cut(title, " in this ")
+	capName, _, _ := strings.Cut(title, " in its ")
 	return capName
 }

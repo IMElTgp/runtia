@@ -67,6 +67,9 @@ func (c *Config) run() error {
 		report.PrintToTerminal(findings)
 	}
 	if c.WriteJSON {
+		if err := report.WriteFindingsAsJSON(report.CompositionFindings); err != nil {
+			return err
+		}
 		if err := report.WriteFindingsAsJSON(report.CapabilitiesFindings); err != nil {
 			return err
 		}

@@ -202,6 +202,106 @@ func TestGetOwnerUserNSKnownAndUnknown(t *testing.T) {
 	if got := GetOwnerUserNS(target.NSRef{Type: "mnt", Dev: 77, Ino: 777}); got != (target.NSRef{}) {
 		t.Fatalf("expected zero-value namespace for unknown owner, got %+v", got)
 	}
+
+	unknownOwner := target.NSRef{Type: "unknown"}
+	OwnerUserNSByNS[target.NSRef{Type: "mnt", Dev: 78, Ino: 778}] = unknownOwner
+	if got := GetOwnerUserNS(target.NSRef{Type: "mnt", Dev: 78, Ino: 778}); got != unknownOwner {
+		t.Fatalf("expected explicit unknown owner marker, got %+v", got)
+	}
+}
+
+func TestIsAcceptableOwnerUserNSError(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{err: unix.EPERM, want: true},
+		{err: unix.EACCES, want: true},
+		{err: unix.EINVAL, want: true},
+		{err: unix.ENOTTY, want: true},
+		{err: unix.ENOSYS, want: true},
+		{err: os.ErrNotExist, want: false},
+	}
+
+	for _, tc := range cases {
+		if got := isAcceptableOwnerUserNSError(tc.err); got != tc.want {
+			t.Fatalf("isAcceptableOwnerUserNSError(%v) = %t, want %t", tc.err, got, tc.want)
+		}
+	}
+}
+
+func TestIsAcceptableNamespaceAccessError(t *testing.T) {
+	cases := []struct {
+		err  error
+		want bool
+	}{
+		{err: os.ErrPermission, want: true},
+		{err: unix.EPERM, want: true},
+		{err: unix.EACCES, want: true},
+		{err: os.ErrNotExist, want: false},
+	}
+
+	for _, tc := range cases {
+		if got := isAcceptableNamespaceAccessError(tc.err); got != tc.want {
+			t.Fatalf("isAcceptableNamespaceAccessError(%v) = %t, want %t", tc.err, got, tc.want)
+		}
+	}
+}
+
+func TestParseNamespaceHelperOutput(t *testing.T) {
+	output := "mnt 4 4026534235\npid 4 4026531836\nuser 4 4026531837\n"
+
+	got, err := parseNamespaceHelperOutput(output)
+	if err != nil {
+		t.Fatalf("parseNamespaceHelperOutput() error = %v", err)
+	}
+
+	want := map[string]target.NSRef{
+		"mnt":  {Type: "mnt", Dev: 4, Ino: 4026534235},
+		"pid":  {Type: "pid", Dev: 4, Ino: 4026531836},
+		"user": {Type: "user", Dev: 4, Ino: 4026531837},
+	}
+	for key, ref := range want {
+		if got[key] != ref {
+			t.Fatalf("expected helper ref %s=%+v, got %+v", key, ref, got[key])
+		}
+	}
+}
+
+func TestParseNamespaceHelperOutputRejectsMalformedLine(t *testing.T) {
+	if _, err := parseNamespaceHelperOutput("pid 4\n"); err == nil {
+		t.Fatalf("expected malformed helper output to return error")
+	}
+}
+
+func TestRecordThreadNamespaceRefs(t *testing.T) {
+	resetNamespaceCollectorState(t)
+
+	thread := &target.Thread{Tid: 10, Tgid: 10}
+	refs := map[string]target.NSRef{
+		"mnt":  {Type: "mnt", Dev: 1, Ino: 11},
+		"pid":  {Type: "pid", Dev: 2, Ino: 22},
+		"user": {Type: "user", Dev: 3, Ino: 33},
+	}
+	ownerByType := map[string]target.NSRef{
+		"mnt": {Type: "unknown"},
+		"pid": {Type: "user", Dev: 4, Ino: 44},
+	}
+
+	recordThreadNamespaceRefs(thread, refs, ownerByType)
+
+	if thread.MntNS != refs["mnt"] || thread.PIDNS != refs["pid"] || thread.UserNS != refs["user"] {
+		t.Fatalf("expected thread namespace refs to be recorded on thread, got %+v", thread)
+	}
+	if got := GetOwnerUserNS(refs["mnt"]); got != ownerByType["mnt"] {
+		t.Fatalf("expected mount owner marker %+v, got %+v", ownerByType["mnt"], got)
+	}
+	if got := GetOwnerUserNS(refs["pid"]); got != ownerByType["pid"] {
+		t.Fatalf("expected pid owner %+v, got %+v", ownerByType["pid"], got)
+	}
+	if got := ThreadsForNS(refs["mnt"]); len(got) != 1 || got[0] != thread {
+		t.Fatalf("expected thread to be registered in mount namespace, got %#v", got)
+	}
 }
 
 func TestClctNamespaceReturnsErrorForMissingThread(t *testing.T) {
