@@ -16,6 +16,7 @@ import (
 
 // store findings by categories
 var (
+	CompositionFindings  = make([]*model.Finding, 0)
 	NamespaceFindings    = make([]*model.Finding, 0)
 	SeccompFindings      = make([]*model.Finding, 0)
 	MountFindings        = make([]*model.Finding, 0)
@@ -26,6 +27,8 @@ var (
 func fillFindings(findings []*model.Finding) {
 	for _, finding := range findings {
 		switch finding.Category {
+		case "composition":
+			CompositionFindings = append(CompositionFindings, finding)
 		case "namespace":
 			NamespaceFindings = append(NamespaceFindings, finding)
 		case "seccomp":
@@ -85,6 +88,16 @@ func nsTypeRank(ns1, ns2 *target.NSRef) bool {
 	default:
 		return false
 	}
+}
+
+func sortCompositionFindings() {
+	CompositionFindings = removeDuplicates(CompositionFindings)
+	sort.Slice(CompositionFindings, func(i, j int) bool {
+		if CompositionFindings[i].RiskLevel != CompositionFindings[j].RiskLevel {
+			return CompositionFindings[i].RiskLevel > CompositionFindings[j].RiskLevel
+		}
+		return CompositionFindings[i].Title < CompositionFindings[j].Title
+	})
 }
 
 // sortNamespaceFindings sorts namespace-related findings
@@ -172,6 +185,7 @@ func SortFindings(findings []*model.Finding) []*model.Finding {
 // SortFindingsByCategory sorts findings separately by category
 func SortFindingsByCategory(findings []*model.Finding) {
 	// clear all finding slices before filling
+	CompositionFindings = []*model.Finding{}
 	NamespaceFindings = []*model.Finding{}
 	SeccompFindings = []*model.Finding{}
 	MountFindings = []*model.Finding{}
@@ -179,6 +193,7 @@ func SortFindingsByCategory(findings []*model.Finding) {
 
 	fillFindings(findings)
 
+	sortCompositionFindings()
 	sortNamespaceFindings()
 	sortSeccompFindings()
 	sortMountFindings()

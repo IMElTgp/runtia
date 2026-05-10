@@ -4,6 +4,14 @@ Runtia is a Linux host-side CLI for inspecting the effective runtime security st
 
 It does not scan images or manifests. It inspects the live container from the host through `/proc`, namespace references, mount information, seccomp state, and capability sets, then reports findings that weaken container isolation.
 
+## Threat Model
+
+Runtia focuses on runtime configuration that expands the attack surface of a container after an attacker can already execute code inside it or control one or more threads inside it.
+
+It does not assume the attacker always has container-root privileges, and it does not try to judge how the attacker entered the container in the first place.
+
+The tool does not claim that a container escape has already happened. It identifies runtime conditions that can make host impact, cross-container impact, or kernel attack-surface expansion more plausible.
+
 ## MVP Status
 
 Runtia has reached a usable MVP stage.
@@ -13,6 +21,7 @@ Current MVP capabilities:
 - resolve a running Docker container from `--container-id`
 - collect live runtime facts from the host
 - analyze namespace, seccomp, capability, and mount-related risk signals
+- compose multiple weaker or contextual signals into higher-level hard-coded composition findings
 - print a readable terminal summary with representative high-risk findings
 - write per-category JSON reports for machine consumption
 
@@ -21,6 +30,12 @@ The current implementation has already been verified against:
 - a low-risk baseline container
 - a container with `seccomp=unconfined`
 - a container with `CAP_SYS_ADMIN`
+
+## Why Thread-Level Analysis
+
+Container runtimes usually assign namespace, seccomp, capability, and mount-related state when the container starts, but the kernel ultimately enforces much of that state on a per-thread execution path.
+
+Later `execve`, capability transitions, ambient capabilities, `setns`, seccomp filter tree differences, or synchronization failures can produce thread-level differences at runtime. Runtia therefore treats threads as the smallest analysis unit while still using container-level context as background.
 
 ## What It Detects Today
 
@@ -82,11 +97,12 @@ Terminal output:
 JSON output:
 
 - `capabilities.json`
+- `composition.json`
 - `mount.json`
 - `namespace.json`
 - `seccomp.json`
 
-Only categories with findings are written.
+Only categories with findings are written. When no rule matches, Runtia emits no finding for that category.
 
 ## Build And Run
 
@@ -130,6 +146,8 @@ docker rm -f runtia-demo
 
 This tool is currently oriented around rootful Docker-on-Linux style inspection.
 
+When direct non-root access to `/proc/<pid>/task/<tid>/ns/*` is denied, Runtia can fall back to a privileged Docker helper container to recover namespace identity for analysis. The helper image defaults to `alpine:latest` and can be overridden with `RUNTIA_NAMESPACE_HELPER_IMAGE`.
+
 ## Repository Layout
 
 - `cmd`
@@ -164,19 +182,52 @@ It is a host-side runtime inspector focused on turning live low-level runtime fa
 
 The repository currently includes or references a local runtime risk lab under `./container-risk-lab`.
 
-The following scenarios are already suitable for the current MVP:
+Representative validated scenarios now include:
 
-- `baseline`
-- `seccomp-unconfined`
-- `cap-sys-admin`
+- single-rule:
+  - `baseline`
+  - `seccomp-unconfined`
+  - `cap-sys-admin`
+  - `cap-net-admin`
+  - `cap-bpf`
+  - `cap-sys-module`
+  - `cap-sys-rawio`
+  - `cap-sys-boot`
+  - `cap-net-raw`
+  - `cap-mknod`
+  - `cap-perfmon`
+  - `cap-setfcap`
+  - `cap-setpcap`
+  - `cap-sys-resource`
+  - `cap-dac-read-search`
+  - `cap-dac-override-single`
+  - `host-pidns`
+  - `host-userns`
+  - `shared-mount`
+  - `writable-host-mount`
+- composition:
+  - `seccomp-unconfined-cap-sys-admin`
+  - `seccomp-unconfined-cap-mknod`
+  - `cap-kill-host-pidns`
+  - `cap-sys-ptrace-host-pidns`
+  - `cap-sys-admin-shared-mount`
+  - `no-new-privs-delayed-cap`
+  - `cap-sys-chroot-mountns`
 
-Additional scenarios such as host PID namespace sharing and mount-related edge cases are appropriate next-step validation targets as the runtime coverage is expanded further.
+Current phase-4 validation status is intentionally split into three buckets:
 
-## Next Steps
+- detection verified and exploit/state validation successful
+- detection verified but the chosen exploit probe is blocked by host hardening
+- still pending on another environment
 
-The MVP is in place. The next work is additive rather than foundational:
+For example, `cap-dac-override-writable-host-mount` now detects the dangerous combination correctly, but direct host-file write probes can still be blocked on hardened hosts by SELinux or other LSM and labeling controls.
 
-- expand live validation coverage to more namespace and mount scenarios
-- improve the PID-based target path
-- refine reporting ergonomics and JSON schema
-- tighten error handling and integration tests
+## Current Limits
+
+Most remaining gaps are not implementation omissions. They are environment-limited:
+
+- a few `HighRisk` capabilities would require touching host-global state to prove directly on this machine
+- some rules lack a meaningful local test surface on this host
+- some proof paths do not produce a clean, reversible, container-local signal under the current kernel/runtime combination
+
+Examples include `CAP_SYS_TIME`, `CAP_AUDIT_CONTROL`, `CAP_MAC_OVERRIDE`, `CAP_MAC_ADMIN`, and `CAP_CHECKPOINT_RESTORE`.

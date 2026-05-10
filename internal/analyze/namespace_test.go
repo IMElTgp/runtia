@@ -311,6 +311,11 @@ func TestCheckOwnerUserNSExistence(t *testing.T) {
 	if got := checkOwnerUserNSExistence(thread, pidNS); got != nil {
 		t.Fatalf("expected no owner-existence signal when owner is known, got %#v", got)
 	}
+
+	collect.OwnerUserNSByNS[mntNS] = target.NSRef{Type: "unknown"}
+	if got := checkOwnerUserNSExistence(thread, mntNS); got == nil {
+		t.Fatalf("expected unknown owner marker to be treated as unresolved owner")
+	}
 }
 
 func TestCheckOwnerUserNSExistenceCornerCases(t *testing.T) {
@@ -376,6 +381,11 @@ func TestCheckOwnerDeviation(t *testing.T) {
 	}
 	if got := checkOwnerDeviation(thread, target.NSRef{Type: "pid", Dev: 99, Ino: 999}, userNS); got != nil {
 		t.Fatalf("expected no signal when owner is unknown here, got %#v", got)
+	}
+
+	collect.OwnerUserNSByNS[mntNS] = target.NSRef{Type: "unknown"}
+	if got := checkOwnerDeviation(thread, mntNS, userNS); got != nil {
+		t.Fatalf("expected no owner deviation when owner marker is unknown, got %#v", got)
 	}
 }
 

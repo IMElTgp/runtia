@@ -180,7 +180,7 @@ func checkOwnerUserNSExistence(thread model.ThreadSnapshot, ns target.NSRef) *mo
 	if ns.Type == "" {
 		return nil
 	}
-	if _, ok := collect.OwnerUserNSByNS[ns]; ok {
+	if owner, ok := collect.OwnerUserNSByNS[ns]; ok && owner.Type == "user" {
 		return nil
 	}
 
@@ -214,7 +214,7 @@ func checkOwnerDeviation(thread model.ThreadSnapshot, ns, targetUserNS target.NS
 		return nil
 	}
 	ownerUserNS, ok := collect.OwnerUserNSByNS[ns]
-	if !ok {
+	if !ok || ownerUserNS.Type != "user" {
 		return nil
 	}
 	if ownerUserNS.Ino == targetUserNS.Ino && ownerUserNS.Dev == targetUserNS.Dev {

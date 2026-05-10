@@ -19,11 +19,13 @@ func testNS(nsType string, dev, ino uint64) *target.NSRef {
 
 func resetSortState(t *testing.T) {
 	t.Helper()
+	CompositionFindings = nil
 	NamespaceFindings = nil
 	SeccompFindings = nil
 	MountFindings = nil
 	CapabilitiesFindings = nil
 	t.Cleanup(func() {
+		CompositionFindings = nil
 		NamespaceFindings = nil
 		SeccompFindings = nil
 		MountFindings = nil
@@ -80,6 +82,19 @@ func mountFinding(risk int, title string, mountPoints []string, evidence ...stri
 		Title:      title,
 		Evidence:   evidence,
 		MountPoint: mountPoints,
+	}
+}
+
+func compositionFinding(risk int, title string, tgid, tid int, evidence ...string) *model.Finding {
+	if len(evidence) == 0 {
+		evidence = []string{"composition"}
+	}
+	return &model.Finding{
+		Category:        "composition",
+		RiskLevel:       risk,
+		Title:           title,
+		Evidence:        evidence,
+		RelativeThreads: []*target.Thread{testThread(tgid, tid)},
 	}
 }
 
@@ -189,6 +204,23 @@ func TestSortNamespaceFindingsOrdersByRiskTypeDevAndIno(t *testing.T) {
 	}
 }
 
+func TestSortCompositionFindingsOrdersByRiskThenTitle(t *testing.T) {
+	resetSortState(t)
+
+	highB := compositionFinding(analyze.HighRisk, "b-title", 1, 1, "b")
+	highA := compositionFinding(analyze.HighRisk, "a-title", 1, 2, "a")
+	medium := compositionFinding(analyze.MediumRisk, "m-title", 1, 3, "m")
+	duplicate := compositionFinding(analyze.HighRisk, "a-title", 9, 9, "a")
+
+	CompositionFindings = []*model.Finding{medium, highB, duplicate, highA}
+	sortCompositionFindings()
+
+	want := []*model.Finding{highA, highB, medium}
+	if !findingsHaveSamePointers(CompositionFindings, want) {
+		t.Fatalf("unexpected composition finding order: got %#v", CompositionFindings)
+	}
+}
+
 func TestSortSeccompFindingsOrdersByRiskThenThread(t *testing.T) {
 	resetSortState(t)
 
@@ -285,6 +317,7 @@ func TestSortFindingsByCategoryResetsAndPopulatesEachCategory(t *testing.T) {
 	resetSortState(t)
 
 	firstBatch := []*model.Finding{
+		compositionFinding(analyze.Fatal, "comp-old", 1, 1, "comp-old"),
 		namespaceFinding(analyze.HighRisk, "pid", 1, 2, "ns-old"),
 		seccompFinding(analyze.HighRisk, 1, 2, "sec-old"),
 		mountFinding(analyze.HighRisk, "mount-old", []string{"/run"}, "mount-old"),
@@ -292,11 +325,16 @@ func TestSortFindingsByCategoryResetsAndPopulatesEachCategory(t *testing.T) {
 	}
 	SortFindingsByCategory(firstBatch)
 
+	secondComposition := compositionFinding(analyze.HighRisk, "comp-new", 2, 2, "comp-new")
 	secondNamespace := namespaceFinding(analyze.HighRisk, "user", 1, 1, "ns-new")
 	secondSeccomp := seccompFinding(analyze.HighRisk, 2, 3, "sec-new")
 	secondMount := mountFinding(analyze.MediumRisk, "mount-new", []string{"/etc"}, "mount-new")
 	secondCapability := capabilityFinding(analyze.HighRisk, "CAP_AUDIT_WRITE", 2, 3, "cap-new")
-	SortFindingsByCategory([]*model.Finding{secondMount, secondCapability, secondSeccomp, secondNamespace})
+	SortFindingsByCategory([]*model.Finding{secondMount, secondCapability, secondSeccomp, secondNamespace, secondComposition})
+
+	if len(CompositionFindings) != 1 || CompositionFindings[0] != secondComposition {
+		t.Fatalf("expected composition findings to be reset and refilled, got %#v", CompositionFindings)
+	}
 
 	if len(NamespaceFindings) != 1 || NamespaceFindings[0] != secondNamespace {
 		t.Fatalf("expected namespace findings to be reset and refilled, got %#v", NamespaceFindings)

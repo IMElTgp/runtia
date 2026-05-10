@@ -19,6 +19,12 @@ func writeJSONFile(jsons []byte, Type string) error {
 	)
 
 	switch Type {
+	case "composition":
+		fd, err = os.OpenFile("composition.json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			return err
+		}
+		defer fd.Close()
 	case "namespace":
 		fd, err = os.OpenFile("namespace.json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
@@ -44,10 +50,8 @@ func writeJSONFile(jsons []byte, Type string) error {
 		}
 		defer fd.Close()
 	case "":
-		defer fd.Close()
 	default:
-		defer fd.Close()
-		return fmt.Errorf(fmt.Sprintf("internal/report/writer.go: unknown finding category %s, unable to create json file", Type))
+		return fmt.Errorf("internal/report/writer.go: unknown finding category %s, unable to create json file", Type)
 	}
 	if fd != nil {
 		_, err = fd.Write(jsons)

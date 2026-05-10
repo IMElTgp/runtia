@@ -63,13 +63,13 @@ func extractPID(containerID string) (string, error) {
 func ResolveCgroupPath(containerID string) (string, error) {
 	pid, err := extractPID(containerID)
 	if err != nil {
-		return "", fmt.Errorf(err.Error() + "; extract container main process ID failed. Check if you've provided invalid container ID")
+		return "", fmt.Errorf("extract container main process ID failed; check if you've provided invalid container ID: %w", err)
 	}
 	fmt.Println("main process id:", pid)
 	f, err := os.Open(filepath.Join("/proc", pid, "cgroup"))
 	if err != nil {
 		// handle error
-		return "", fmt.Errorf(err.Error() + "; open cgroup file failed. Check if you've provided invalid container ID")
+		return "", fmt.Errorf("open cgroup file failed; check if you've provided invalid container ID: %w", err)
 	}
 	defer func() {
 		if err = f.Close(); err != nil {
