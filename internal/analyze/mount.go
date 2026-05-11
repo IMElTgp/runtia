@@ -299,6 +299,15 @@ func (t *trie) recursiveAnalyzeWritablePaths(root *trie, inhRisk int, vitalPath 
 	return
 }
 
+func requiresExplicitHostFSMount(vitalPath string) bool {
+	switch vitalPath {
+	case "/host", "/rootfs":
+		return true
+	default:
+		return false
+	}
+}
+
 // judgeVitalPathWritable judges whether some vital paths are writable
 // in which t is the root of the trie
 func (t *trie) judgeVitalPathWritable(vitalPaths []string) (signals []*model.Signal) {
@@ -309,7 +318,7 @@ func (t *trie) judgeVitalPathWritable(vitalPaths []string) (signals []*model.Sig
 	for _, vitalPath := range vitalPaths {
 		// pre-handle vitalPath's mount point
 		preHandleMountPoint := t.searchLongestCommonPrefixMatch(vitalPath)
-		if preHandleMountPoint != nil {
+		if preHandleMountPoint != nil && (!requiresExplicitHostFSMount(vitalPath) || preHandleMountPoint.DirName == vitalPath) {
 			signals = append(signals, t.recursiveAnalyzeWritablePaths(preHandleMountPoint, Safe, vitalPath, false)...)
 		}
 

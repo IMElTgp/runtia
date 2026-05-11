@@ -1022,3 +1022,39 @@ func TestAnalyzeMountMixedSnapshotAggregatesOnlyRiskyNamespaceSignals(t *testing
 		t.Fatalf("expected /rootfs transition thread %p, got %#v", riskyThread, transition.RelativeThreads)
 	}
 }
+
+func TestAnalyzeMountDoesNotTreatWritableRootAsHostFilesystemExposure(t *testing.T) {
+	nsRef := target.NSRef{Type: "mnt", Dev: 84, Ino: 184}
+	thread := &target.Thread{Tid: 84, Tgid: 84, Comm: "host-userns-like", MntNS: nsRef}
+	withMntNSThreads(t, nsRef, []*target.Thread{thread})
+
+	rule := &Rule{
+		Snapshot: model.Snapshot{
+			MountNamespaces: []model.NamespaceSnapshot{
+				{
+					NSRef: nsRef,
+					MountInfo: []collect.MountInfo{
+						writableMount(1, 1, "/", "overlay"),
+						readOnlyMount(2, 1, "/proc/sys", "proc"),
+						readOnlyMount(3, 1, "/sys", "sysfs"),
+						readOnlyMount(4, 3, "/sys/fs/cgroup", "cgroup2"),
+						readOnlyMount(5, 1, "/etc", "overlay"),
+						writableMount(6, 1, "/dev", "tmpfs"),
+						writableMount(7, 1, "/run", "tmpfs"),
+						writableMount(8, 1, "/var/run", "tmpfs"),
+					},
+				},
+			},
+		},
+	}
+
+	rule.AnalyzeMount()
+
+	if signal := findSignalByTitle(rule.Signals, "Host filesystem view /host is writable"); signal != nil {
+		t.Fatalf("expected no /host exposure signal when only / is writable, got %#v", signal)
+	}
+	if signal := findSignalByTitle(rule.Signals, "Host filesystem view /rootfs is writable"); signal != nil {
+		t.Fatalf("expected no /rootfs exposure signal when only / is writable, got %#v", signal)
+	}
+	requireRuleSignalCount(t, rule.Signals, 0)
+}
