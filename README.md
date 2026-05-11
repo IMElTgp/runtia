@@ -214,7 +214,7 @@ Representative validated scenarios now include:
   - `no-new-privs-delayed-cap`
   - `cap-sys-chroot-mountns`
 
-Current phase-4 validation status is intentionally split into three buckets:
+Current validation status is intentionally split into three buckets:
 
 - detection verified and exploit/state validation successful
 - detection verified but the chosen exploit probe is blocked by host hardening

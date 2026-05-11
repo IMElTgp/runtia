@@ -6,4 +6,5 @@
 *.png
 *.html
 *.css
-!summary.html
+*.log
+*.txt
