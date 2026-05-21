@@ -1,10 +1,13 @@
-.*
-*.json
-*.md
-!README.md
-*.pdf
-*.png
-*.html
-*.css
-*.log
-*.txt
+# Ignore everything by default, then allow only source and core project files.
+*
+!/.gitignore
+!/README.md
+!/Makefile
+!/go.mod
+!/go.sum
+!/cmd/
+!/cmd/**
+!/internal/
+!/internal/**
+!/scripts/
+!/scripts/**
