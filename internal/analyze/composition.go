@@ -9,6 +9,9 @@ import (
 	"github.com/IMElTgp/container-runtime-analysis/internal/target"
 )
 
+// signalThread returns the first thread of signal.RelativeThreads
+// maybe the design of signal.RelativeThreads is not proper; will
+// signal.RelativeThread (of type *target.Thread) be better?
 func signalThread(signal model.Signal) *target.Thread {
 	if len(signal.RelativeThreads) == 0 {
 		return nil
@@ -16,6 +19,7 @@ func signalThread(signal model.Signal) *target.Thread {
 	return signal.RelativeThreads[0]
 }
 
+// signalMentionsThread checks if a signal is related to given thread
 func signalMentionsThread(signal model.Signal, tid int) bool {
 	for _, thread := range signal.RelativeThreads {
 		if thread != nil && thread.Tid == tid {
@@ -25,6 +29,8 @@ func signalMentionsThread(signal model.Signal, tid int) bool {
 	return false
 }
 
+// capabilitySetLabelFromFinding returns the capability name that a
+// signal claimed
 func capabilitySetLabelFromFinding(finding *model.Finding) string {
 	title := strings.TrimPrefix(finding.Title, "Thread has ")
 	_, rest, found := strings.Cut(title, " in its ")
@@ -34,6 +40,8 @@ func capabilitySetLabelFromFinding(finding *model.Finding) string {
 	return strings.TrimSuffix(rest, " capability set")
 }
 
+// isCapabilitySignal checks if a signal contains given capability
+// sets: eff, prm, inh, amb, bnd
 func isCapabilitySignal(signal model.Signal, capName string, sets ...string) bool {
 	if signal.Category != "capabilities" {
 		return false
@@ -47,6 +55,8 @@ func isCapabilitySignal(signal model.Signal, capName string, sets ...string) boo
 	return slices.Contains(sets, capabilitySetLabelFromFinding(&signal.Finding))
 }
 
+// isAnyCapabilitySignal checks if a signal contains any capability in
+// capNames within the given capability sets.
 func isAnyCapabilitySignal(signal model.Signal, capNames []string, sets ...string) bool {
 	for _, capName := range capNames {
 		if isCapabilitySignal(signal, capName, sets...) {
@@ -56,10 +66,14 @@ func isAnyCapabilitySignal(signal model.Signal, capNames []string, sets ...strin
 	return false
 }
 
+// isMountSignalForThread checks if a mount signal is related to the
+// given thread.
 func isMountSignalForThread(signal model.Signal, thread *target.Thread) bool {
 	return signal.Category == "mount" && thread != nil && signalMentionsThread(signal, thread.Tid)
 }
 
+// isHostPIDNamespaceSignalForThread checks if a host PID namespace
+// signal is related to the given thread.
 func isHostPIDNamespaceSignalForThread(signal model.Signal, thread *target.Thread) bool {
 	return signal.Category == "namespace" &&
 		signal.Title == "Thread shares the host PID namespace" &&
@@ -67,6 +81,8 @@ func isHostPIDNamespaceSignalForThread(signal model.Signal, thread *target.Threa
 		signalMentionsThread(signal, thread.Tid)
 }
 
+// isMountNamespaceDeviationSignalForThread checks if a mount namespace
+// deviation signal is related to the given thread.
 func isMountNamespaceDeviationSignalForThread(signal model.Signal, thread *target.Thread) bool {
 	return signal.Category == "namespace" &&
 		signal.Title == "Thread uses a different mount namespace than its main thread" &&
@@ -74,11 +90,15 @@ func isMountNamespaceDeviationSignalForThread(signal model.Signal, thread *targe
 		signalMentionsThread(signal, thread.Tid)
 }
 
+// isNonPrivateMountSignalForThread checks if a non-private mount
+// propagation signal is related to the given thread.
 func isNonPrivateMountSignalForThread(signal model.Signal, thread *target.Thread) bool {
 	return isMountSignalForThread(signal, thread) &&
 		signal.Title == "Mount point with non-private status in mount tree"
 }
 
+// isWritableHostOrSensitiveMountForThread checks if a writable host or
+// sensitive runtime mount signal is related to the given thread.
 func isWritableHostOrSensitiveMountForThread(signal model.Signal, thread *target.Thread) bool {
 	if !isMountSignalForThread(signal, thread) || len(signal.MountPoint) == 0 {
 		return false
@@ -95,14 +115,20 @@ func isWritableHostOrSensitiveMountForThread(signal model.Signal, thread *target
 	}
 }
 
+// isUnconfinedSeccompSignal checks if a signal reports that seccomp is
+// not enabled for a thread.
 func isUnconfinedSeccompSignal(signal model.Signal) bool {
 	return signal.Category == "seccomp" && signal.Title == "Thread runs without seccomp filtering"
 }
 
+// isNoNewPrivsDisabledSignal checks if a signal reports that
+// no_new_privs is not enabled for a thread.
 func isNoNewPrivsDisabledSignal(signal model.Signal) bool {
 	return signal.Category == "seccomp" && signal.Title == "Thread does not enable no_new_privs"
 }
 
+// uniqueMountPointsFromSignals collects unique mount points from the
+// given signal indexes and returns them in sorted order.
 func uniqueMountPointsFromSignals(signals []model.Signal, indexes []int) []string {
 	seen := make(map[string]struct{})
 	mountPoints := make([]string, 0)
@@ -122,6 +148,8 @@ func uniqueMountPointsFromSignals(signals []model.Signal, indexes []int) []strin
 	return mountPoints
 }
 
+// capabilityNamesFromSignals collects unique capability names from the
+// given signal indexes and returns them in sorted order.
 func capabilityNamesFromSignals(signals []model.Signal, indexes []int) []string {
 	seen := make(map[string]struct{})
 	names := make([]string, 0, len(indexes))
@@ -140,6 +168,8 @@ func capabilityNamesFromSignals(signals []model.Signal, indexes []int) []string 
 	return names
 }
 
+// markCovered marks the given signal indexes as covered when they are
+// within the current rule's signal range.
 func (r *Rule) markCovered(indexes ...int) {
 	for _, idx := range indexes {
 		if idx < 0 || idx >= len(r.Signals) {
@@ -149,11 +179,15 @@ func (r *Rule) markCovered(indexes ...int) {
 	}
 }
 
+// appendComposition marks the related source signals as covered and
+// appends the synthesized composition signal.
 func (r *Rule) appendComposition(signal model.Signal, coveredIndexes ...int) {
 	r.markCovered(coveredIndexes...)
 	r.Signals = append(r.Signals, signal)
 }
 
+// newCompositionSignal builds a composition-category signal from the
+// provided risk, description, scope, and evidence fields.
 func newCompositionSignal(
 	riskLevel int,
 	title, summary, recommendation string,
@@ -182,6 +216,8 @@ func newCompositionSignal(
 	}
 }
 
+// analyzeCompositionCAPSysPtraceHostPIDNamespace finds threads that
+// combine CAP_SYS_PTRACE with the host PID namespace.
 func (r *Rule) analyzeCompositionCAPSysPtraceHostPIDNamespace() {
 	for capIdx := range r.Signals {
 		capSignal := r.Signals[capIdx]
@@ -224,6 +260,9 @@ func (r *Rule) analyzeCompositionCAPSysPtraceHostPIDNamespace() {
 	}
 }
 
+// analyzeCompositionCAPSysAdminNonPrivateMountPropagation finds
+// threads that combine CAP_SYS_ADMIN with non-private mount
+// propagation.
 func (r *Rule) analyzeCompositionCAPSysAdminNonPrivateMountPropagation() {
 	for capIdx := range r.Signals {
 		capSignal := r.Signals[capIdx]
@@ -272,6 +311,8 @@ func (r *Rule) analyzeCompositionCAPSysAdminNonPrivateMountPropagation() {
 	}
 }
 
+// analyzeCompositionCAPDACOverrideWritableHostMount finds threads that
+// combine CAP_DAC_OVERRIDE with writable host or sensitive mounts.
 func (r *Rule) analyzeCompositionCAPDACOverrideWritableHostMount() {
 	for capIdx := range r.Signals {
 		capSignal := r.Signals[capIdx]
@@ -320,6 +361,8 @@ func (r *Rule) analyzeCompositionCAPDACOverrideWritableHostMount() {
 	}
 }
 
+// analyzeCompositionUnconfinedSeccompHighRiskCapability finds threads
+// that combine unconfined seccomp with high-risk capabilities.
 func (r *Rule) analyzeCompositionUnconfinedSeccompHighRiskCapability() {
 	for seccompIdx := range r.Signals {
 		seccompSignal := r.Signals[seccompIdx]
@@ -372,6 +415,9 @@ func (r *Rule) analyzeCompositionUnconfinedSeccompHighRiskCapability() {
 	}
 }
 
+// analyzeCompositionNoNewPrivsDelayedPrivilegeTransitionCapability
+// finds threads that keep delayed privilege-transition capabilities
+// while no_new_privs is disabled.
 func (r *Rule) analyzeCompositionNoNewPrivsDelayedPrivilegeTransitionCapability() {
 	privilegeTransitionCaps := []string{"CAP_SETUID", "CAP_SETGID", "CAP_SETPCAP", "CAP_SETFCAP"}
 
@@ -424,6 +470,9 @@ func (r *Rule) analyzeCompositionNoNewPrivsDelayedPrivilegeTransitionCapability(
 	}
 }
 
+// analyzeCompositionCAPSysChrootMountNamespaceDeviation finds threads
+// that combine CAP_SYS_CHROOT with thread-level mount namespace
+// deviation.
 func (r *Rule) analyzeCompositionCAPSysChrootMountNamespaceDeviation() {
 	for capIdx := range r.Signals {
 		capSignal := r.Signals[capIdx]
@@ -466,6 +515,8 @@ func (r *Rule) analyzeCompositionCAPSysChrootMountNamespaceDeviation() {
 	}
 }
 
+// analyzeCompositionCAPKillHostPIDNamespace finds threads that combine
+// CAP_KILL with the host PID namespace.
 func (r *Rule) analyzeCompositionCAPKillHostPIDNamespace() {
 	for capIdx := range r.Signals {
 		capSignal := r.Signals[capIdx]
@@ -508,6 +559,7 @@ func (r *Rule) analyzeCompositionCAPKillHostPIDNamespace() {
 	}
 }
 
+// AnalyzeComposition runs all composition-signal synthesis rules.
 func (r *Rule) AnalyzeComposition() {
 	r.analyzeCompositionCAPSysPtraceHostPIDNamespace()
 	r.analyzeCompositionCAPSysAdminNonPrivateMountPropagation()

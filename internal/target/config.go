@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type DaemonCfg struct {
@@ -77,7 +78,7 @@ func checkHostConfig(containerID string) bool {
 		return true
 	}
 
-	if cfg.UsernsMode == "host" {
+	if strings.TrimSpace(cfg.UsernsMode) == "host" {
 		return false
 	}
 
