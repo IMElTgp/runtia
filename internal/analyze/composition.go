@@ -41,7 +41,7 @@ func capabilitySetLabelFromFinding(finding *model.Finding) string {
 }
 
 // isCapabilitySignal checks if a signal contains given capability
-// sets: eff, prm, inh, amb, bnd
+// where `sets` contains at least one of eff, prm, inh, amb, and bnd
 func isCapabilitySignal(signal model.Signal, capName string, sets ...string) bool {
 	if signal.Category != "capabilities" {
 		return false
