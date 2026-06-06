@@ -1,96 +1,62 @@
 # Runtia
 
-Runtia is a Linux host-side CLI for inspecting the effective runtime security state of a running Docker container.
+Runtia is a Linux host-side CLI for inspecting the effective runtime security state of a running K3s Pod.
 
-It does not scan images or manifests. It inspects the live container from the host through `/proc`, namespace references, mount information, seccomp state, and capability sets, then reports findings that weaken container isolation.
+It does not scan images, manifests, RBAC, admission policy, or network policy. It inspects live workload containers from the node through Kubernetes metadata, CRI metadata, `/proc`, namespace references, mount information, seccomp state, and capability sets, then reports findings that weaken container or Pod isolation.
 
-## Threat Model
+## K3s Pod-only MVP Status
 
-Runtia focuses on runtime configuration that expands the attack surface of a container after an attacker can already execute code inside it or control one or more threads inside it.
-
-It does not assume the attacker always has container-root privileges, and it does not try to judge how the attacker entered the container in the first place.
-
-The tool does not claim that a container escape has already happened. It identifies runtime conditions that can make host impact, cross-container impact, or kernel attack-surface expansion more plausible.
-
-## MVP Status
-
-Runtia has reached a usable MVP stage.
+Runtia currently targets a K3s Pod-only MVP.
 
 Current MVP capabilities:
 
-- resolve a running Docker container from `--container-id`
-- collect live runtime facts from the host
-- analyze namespace, seccomp, capability, and mount-related risk signals
-- compose multiple weaker or contextual signals into higher-level hard-coded composition findings
+- resolve a running Pod from `--namespace` and `--pod`
+- enumerate ordinary workload containers from `status.containerStatuses`
+- skip init and ephemeral containers for the MVP
+- resolve each container's main process PID with `crictl inspect -o json`
+- collect live runtime facts from the host for each resolved container
+- analyze namespace, seccomp, capability, and mount-related risk signals per container
+- compose selected cross-container findings inside one Pod when runtime evidence proves a shared isolation boundary or shared volume backing source
 - print a readable terminal summary with representative high-risk findings
-- write per-category JSON reports for machine consumption
+- write per-category JSON reports and warning files for machine consumption
 
-The current implementation has already been verified against:
+## Threat Model
 
-- a low-risk baseline container
-- a container with `seccomp=unconfined`
-- a container with `CAP_SYS_ADMIN`
+Runtia focuses on runtime configuration that expands attack surface after an attacker can already execute code inside one Pod container or control one or more threads inside it.
 
-## Why Thread-Level Analysis
-
-Container runtimes usually assign namespace, seccomp, capability, and mount-related state when the container starts, but the kernel ultimately enforces much of that state on a per-thread execution path.
-
-Later `execve`, capability transitions, ambient capabilities, `setns`, seccomp filter tree differences, or synchronization failures can produce thread-level differences at runtime. Runtia therefore treats threads as the smallest analysis unit while still using container-level context as background.
-
-## What It Detects Today
-
-The current analyzer focuses on four categories:
-
-- `namespace`
-  - host user namespace sharing
-  - host PID namespace sharing
-  - host mount namespace sharing
-  - per-thread namespace deviation from the main thread
-  - owner user namespace mismatch for non-user namespaces
-
-- `seccomp`
-  - seccomp fully disabled
-  - strict seccomp mode
-  - filter mode without attached filters
-  - `no_new_privs` disabled
-
-- `capabilities`
-  - dangerous capabilities in effective, permitted, ambient, inheritable, or bounding sets
-  - risk prioritization for capabilities such as `CAP_SYS_ADMIN`, `CAP_DAC_OVERRIDE`, `CAP_NET_ADMIN`, `CAP_BPF`, and others
-
-- `mount`
-  - non-private mount propagation markers such as `shared:X`
-  - writable sensitive runtime or host-visible paths
-  - writable child mount under a read-only parent mount
+The tool does not claim that an escape has already happened. It identifies runtime conditions that can make host impact, cross-container impact, or kernel attack-surface expansion more plausible.
 
 ## Runtime Pipeline
 
 Runtia follows this pipeline:
 
 ```text
-target -> collect -> snapshot -> analyze -> finding -> report
+pod target -> container targets -> collect -> snapshot -> analyze -> pod composition -> report
 ```
 
-1. resolve a scan target from a Docker container ID
-2. collect raw runtime facts from the host
-3. normalize them into a snapshot
-4. analyze the snapshot into structured findings
-5. render findings for terminal output and JSON output
+1. resolve the Pod with `k3s kubectl get pod -n <namespace> <pod-name> -o json`
+2. keep ordinary workload containers from the Pod status
+3. resolve each container's main process PID with `crictl inspect -o json <runtime-container-id>`
+4. resolve the container cgroup from the main PID
+5. collect per-thread runtime facts from the host
+6. analyze each container snapshot into structured findings
+7. append Pod-level cross-container composition findings
+8. render findings for terminal output and JSON output
 
-## Current Input Model
+## Input Model
 
-Current supported input:
+Supported input:
 
-- Docker container ID via `--container-id`
+- `--namespace <namespace>`
+- `--pod <pod-name>`
 
-Not yet wired as a supported user-facing path:
-
-- direct PID-based scanning
+The scanner is expected to run on the node where the target Pod is scheduled. The MVP does not scan arbitrary remote nodes.
 
 ## Output Model
 
 Terminal output:
 
+- warning messages for skipped best-effort steps
 - overall finding counts by severity
 - representative `Fatal` and `HighRisk` findings
 
@@ -101,8 +67,9 @@ JSON output:
 - `mount.json`
 - `namespace.json`
 - `seccomp.json`
+- `warnings.json`
 
-Only categories with findings are written. When no rule matches, Runtia emits no finding for that category.
+Only categories with findings are written. `warnings.json` is written when best-effort resolution or collection steps had to skip a container or runtime fact.
 
 ## Build And Run
 
@@ -112,10 +79,10 @@ Recommended local install:
 make install
 ```
 
-If `~/.local/bin` is already in your `PATH`, you can then run:
+If `~/.local/bin` is already in your `PATH`, run the scanner with `sudo`:
 
 ```bash
-runtia --container-id <container-id>
+sudo runtia --namespace default --pod risk-pod
 ```
 
 Direct build without installation:
@@ -127,43 +94,34 @@ make build
 Run the local binary from the repository:
 
 ```bash
-./bin/runtia --container-id <container-id>
-```
-
-Example:
-
-```bash
-docker run -d --rm --name runtia-demo --security-opt seccomp=unconfined alpine sleep 600
-runtia --container-id runtia-demo
-docker rm -f runtia-demo
+sudo ./bin/runtia --namespace default --pod risk-pod
 ```
 
 ## Environment Assumptions
 
-- Linux host
-- Docker Engine
-- host access to the target container's `/proc` information
+- Linux K3s node
+- target Pod is scheduled on the local node
+- `sudo` or equivalent privileges for host `/proc` and cgroup inspection
+- `k3s kubectl` is available
+- `crictl` is available and can inspect the Pod's runtime container IDs
+- host `/proc` and cgroup filesystems are mounted normally
 
-This tool is currently oriented around rootful Docker-on-Linux style inspection.
+Resolution and collection are best-effort. When a container ID, PID, cgroup, thread, namespace, or mount fact cannot be resolved after the configured wait/retry behavior, Runtia skips that item, prints a warning, and records the warning in `warnings.json`.
 
-When direct non-root access to `/proc/<pid>/task/<tid>/ns/*` is denied, Runtia can fall back to a privileged Docker helper container to recover namespace identity for analysis. The helper image defaults to `alpine:latest` and can be overridden with `RUNTIA_NAMESPACE_HELPER_IMAGE`.
+## What It Detects Today
 
-## Repository Layout
+The current analyzer focuses on four primitive categories:
 
-- `cmd`
-  - CLI entrypoint
-- `internal/app`
-  - orchestration for one scan run
-- `internal/target`
-  - resolve scan targets and enumerate container threads
-- `internal/collect`
-  - collect raw runtime facts from the host
-- `internal/model`
-  - shared snapshot, signal, and finding structures
-- `internal/analyze`
-  - risk analysis rules
-- `internal/report`
-  - terminal and JSON reporting
+- `namespace`: host namespace sharing, per-thread namespace deviation, and owner user namespace mismatch for non-user namespaces
+- `seccomp`: disabled or suspicious seccomp state and `no_new_privs` disabled
+- `capabilities`: dangerous capabilities in effective, permitted, ambient, inheritable, or bounding sets
+- `mount`: non-private propagation, writable sensitive paths, and writable child mounts under read-only parents
+
+Pod-level composition currently adds selected cross-container findings when evidence comes from at least two ordinary workload containers in the same Pod:
+
+- shared PID namespace plus process-control capabilities
+- shared PID namespace plus DAC capabilities for `/proc/$pid/root` exposure, when the MVP user namespace compatibility check passes
+- shared volume writable producer plus sensitive consumer path
 
 ## Scope
 
@@ -174,60 +132,42 @@ It is not:
 - an image vulnerability scanner
 - an SBOM generator
 - a Kubernetes admission controller
+- a Kubernetes RBAC or ServiceAccount auditor
+- a NetworkPolicy analyzer
 - a full container security platform
 
 It is a host-side runtime inspector focused on turning live low-level runtime facts into actionable findings.
 
-## Verified Lab
+## Real K3s Smoke Test
 
-The repository currently includes or references a local runtime risk lab under `./container-risk-lab`.
+Run the real K3s smoke test on the node where the smoke Pod will be scheduled:
 
-Representative validated scenarios now include:
+```bash
+scripts/k3s_smoke.sh
+```
 
-- single-rule:
-  - `baseline`
-  - `seccomp-unconfined`
-  - `cap-sys-admin`
-  - `cap-net-admin`
-  - `cap-bpf`
-  - `cap-sys-module`
-  - `cap-sys-rawio`
-  - `cap-sys-boot`
-  - `cap-net-raw`
-  - `cap-mknod`
-  - `cap-perfmon`
-  - `cap-setfcap`
-  - `cap-setpcap`
-  - `cap-sys-resource`
-  - `cap-dac-read-search`
-  - `cap-dac-override-single`
-  - `host-pidns`
-  - `host-userns`
-  - `shared-mount`
-  - `writable-host-mount`
-- composition:
-  - `seccomp-unconfined-cap-sys-admin`
-  - `seccomp-unconfined-cap-mknod`
-  - `cap-kill-host-pidns`
-  - `cap-sys-ptrace-host-pidns`
-  - `cap-sys-admin-shared-mount`
-  - `no-new-privs-delayed-cap`
-  - `cap-sys-chroot-mountns`
+If the current shell needs privileges for K3s and CRI access, run it from an interactive terminal where `sudo` can prompt:
 
-Current validation status is intentionally split into three buckets:
+```bash
+RUNTIA_SMOKE_RESULT_FILE=/tmp/runtia-k3s-smoke-result.txt sudo -E scripts/k3s_smoke.sh
+```
 
-- detection verified and exploit/state validation successful
-- detection verified but the chosen exploit probe is blocked by host hardening
-- still pending on another environment
+The script builds `./bin/runtia`, creates a temporary namespace, creates a two-container Pod with non-destructive detectable risk settings, runs:
 
-For example, `cap-dac-override-writable-host-mount` now detects the dangerous combination correctly, but direct host-file write probes can still be blocked on hardened hosts by SELinux or other LSM and labeling controls.
+```bash
+sudo ./bin/runtia --namespace <namespace> --pod <pod-name>
+```
 
-## Current Limits
+It then verifies that `namespace.json`, `seccomp.json`, `capabilities.json`, and `composition.json` were written. `warnings.json` is optional and appears only when non-fatal warnings occur.
 
-Most remaining gaps are not implementation omissions. They are environment-limited:
+Useful overrides:
 
-- a few `HighRisk` capabilities would require touching host-global state to prove directly on this machine
-- some rules lack a meaningful local test surface on this host
-- some proof paths do not produce a clean, reversible, container-local signal under the current kernel/runtime combination
+- `RUNTIA_SMOKE_NAMESPACE`: namespace to create and use
+- `RUNTIA_SMOKE_POD`: Pod name
+- `RUNTIA_SMOKE_IMAGE`: container image, default `alpine:3.20`
+- `RUNTIA_SMOKE_OUT_DIR`: output directory for JSON reports
+- `RUNTIA_SMOKE_RESULT_FILE`: result summary file to inspect after the run
+- `RUNTIA_CRI_ENDPOINT`: CRI endpoint passed to `crictl`, default `unix:///run/k3s/containerd/containerd.sock`
+- `RUNTIA_SMOKE_KEEP=1`: keep the namespace after the run for debugging
 
-Examples include `CAP_SYS_TIME`, `CAP_AUDIT_CONTROL`, `CAP_MAC_OVERRIDE`, `CAP_MAC_ADMIN`, and `CAP_CHECKPOINT_RESTORE`.
+The smoke test validates detection and report generation only. It does not perform exploit proof.

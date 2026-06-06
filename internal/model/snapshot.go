@@ -18,10 +18,16 @@ type NamespaceSnapshot struct {
 type ThreadSnapshot target.Thread
 
 type Metadata struct {
-	CollectedAt time.Time
-	ContainerID string
-	InitPID     int
-	CgroupPath  string
+	CollectedAt   time.Time
+	Namespace     string
+	PodName       string
+	NodeName      string
+	ContainerName string
+	ContainerID   string
+	Runtime       string
+	RuntimeID     string
+	InitPID       int
+	CgroupPath    string
 }
 
 type Snapshot struct {
@@ -43,7 +49,13 @@ func initSnapshot() Snapshot {
 
 func (s *Snapshot) collectMetadata(metadata Metadata) {
 	s.CollectedAt = metadata.CollectedAt
+	s.Namespace = metadata.Namespace
+	s.PodName = metadata.PodName
+	s.NodeName = metadata.NodeName
+	s.ContainerName = metadata.ContainerName
 	s.ContainerID = metadata.ContainerID
+	s.Runtime = metadata.Runtime
+	s.RuntimeID = metadata.RuntimeID
 	s.InitPID = metadata.InitPID
 	s.CgroupPath = metadata.CgroupPath
 }

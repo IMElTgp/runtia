@@ -1,6 +1,7 @@
 package report
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -67,4 +68,24 @@ func WriteFindingsAsJSON(findings []*model.Finding) error {
 		return err
 	}
 	return writeJSONFile(jsons, Type)
+}
+
+func WriteWarningsAsJSON(warnings []model.Warning) error {
+	if len(warnings) == 0 {
+		return nil
+	}
+
+	jsons, err := json.MarshalIndent(warnings, "", " ")
+	if err != nil {
+		return err
+	}
+
+	fd, err := os.OpenFile("warnings.json", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer fd.Close()
+
+	_, err = fd.Write(jsons)
+	return err
 }

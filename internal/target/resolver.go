@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -46,48 +45,6 @@ type Thread struct {
 
 func printErr(err error) {
 	_, _ = fmt.Fprintln(os.Stderr, "[ERROR]:", err.Error())
-}
-
-// extractPID extracts container main process PID by calling docker inspect
-func extractPID(containerID string) (string, error) {
-	out, err := exec.Command("docker", "inspect", "-f", "{{.State.Pid}}", containerID).Output()
-	if err != nil {
-		// handle error
-		return "", err
-	}
-	out = []byte(strings.TrimRight(string(out), "\n"))
-	return string(out), nil
-}
-
-// ResolveCgroupPath resolves containerID into the container's cgroup path to extract all the processes inside
-func ResolveCgroupPath(containerID string) (string, error) {
-	pid, err := extractPID(containerID)
-	if err != nil {
-		return "", fmt.Errorf("extract container main process ID failed; check if you've provided invalid container ID: %w", err)
-	}
-	fmt.Println("main process id:", pid)
-	f, err := os.Open(filepath.Join("/proc", pid, "cgroup"))
-	if err != nil {
-		// handle error
-		return "", fmt.Errorf("open cgroup file failed; check if you've provided invalid container ID: %w", err)
-	}
-	defer func() {
-		if err = f.Close(); err != nil {
-			printErr(err)
-		}
-	}()
-	var buf = bufio.NewReader(f)
-	cgroupPath, err := buf.ReadString('\n')
-	if err != nil {
-		// handle error
-		return "", err
-	}
-	cgroupPath = strings.TrimPrefix(cgroupPath, "0::/")
-	// test
-	fullPath := filepath.Join("/sys/fs/cgroup", cgroupPath)
-	// clear '\n'
-	fullPath = strings.TrimSpace(fullPath)
-	return fullPath, nil
 }
 
 // getComm reveals a thread's comm by reading /proc/<tid>/comm

@@ -9,7 +9,7 @@ GOCACHE ?= $(CURDIR)/.cache/go-build
 
 build:
 	mkdir -p ./bin $(GOCACHE)
-	GOCACHE=$(GOCACHE) $(GO) build -ldflags="-s -w" -o $(OUT) $(SRC)
+	GOCACHE=$(GOCACHE) $(GO) build -buildvcs=false -ldflags="-s -w" -o $(OUT) $(SRC)
 
 install: build
 	mkdir -p $(INSTALL_DIR)

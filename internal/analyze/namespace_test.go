@@ -165,7 +165,7 @@ func TestCheckNamespaceSharingSignals(t *testing.T) {
 			},
 			check:     checkUserNamespaceSharing,
 			wantTitle: "Thread shares the host user namespace",
-			wantRisk:  Fatal,
+			wantRisk:  LowRisk,
 			wantNS:    userNS,
 		},
 		{
@@ -227,6 +227,31 @@ func TestCheckNamespaceSharingSignals(t *testing.T) {
 	collect.HostMntNS = target.NSRef{Type: "mnt", Dev: 30, Ino: 301}
 	if got := checkMntNamespaceSharing(thread); got != nil {
 		t.Fatalf("expected no signal when mount namespace differs from host, got %#v", got)
+	}
+}
+
+func TestCheckUserNamespaceSharingUsesK3sLowRisk(t *testing.T) {
+	resetNamespaceAnalyzeCollectorState(t)
+
+	userNS := target.NSRef{Type: "user", Dev: 10, Ino: 100}
+	threadPtr := &target.Thread{
+		Tid:          210,
+		Tgid:         210,
+		Comm:         "share-check",
+		IsMainThread: true,
+		UserNS:       userNS,
+	}
+	thread := model.ThreadSnapshot(*threadPtr)
+
+	collect.HostUserNS = userNS
+	collect.UserNSThreads[userNS] = []*target.Thread{threadPtr}
+
+	got := checkUserNamespaceSharing(thread)
+	if got == nil {
+		t.Fatal("expected user namespace sharing signal when thread shares host user namespace")
+	}
+	if got.RiskLevel != LowRisk {
+		t.Fatalf("expected K3s LowRisk for host user namespace sharing, got %d", got.RiskLevel)
 	}
 }
 

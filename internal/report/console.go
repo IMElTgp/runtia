@@ -136,6 +136,12 @@ func printOneFinding(finding *model.Finding) {
 	if finding.RelativeNS != nil {
 		fmt.Println("Related Namespace:", fmt.Sprintf("dev=%d, ino=%d, type=%s", finding.RelativeNS.Dev, finding.RelativeNS.Ino, finding.RelativeNS.Type))
 	}
+	if len(finding.RelativeNSs) > 0 {
+		fmt.Println("Related Namespaces:")
+		for _, ns := range finding.RelativeNSs {
+			fmt.Println(" ", fmt.Sprintf("dev=%d, ino=%d, type=%s", ns.Dev, ns.Ino, ns.Type))
+		}
+	}
 	if len(finding.MountPoint) > 0 {
 		fmt.Println("Mount Points:", strings.Join(finding.MountPoint, " "))
 	}

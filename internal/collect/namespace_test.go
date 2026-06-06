@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/IMElTgp/container-runtime-analysis/internal/target"
@@ -62,6 +63,149 @@ func resetNamespaceCollectorState(t *testing.T) {
 		HostPIDNS = oldHostPIDNS
 		HostUserNS = oldHostUserNS
 	})
+}
+
+func TestResetStateClearsAllCollectorGlobals(t *testing.T) {
+	resetNamespaceCollectorState(t)
+
+	mntNS := target.NSRef{Type: "mnt", Dev: 11, Ino: 111}
+	pidNS := target.NSRef{Type: "pid", Dev: 22, Ino: 222}
+	userNS := target.NSRef{Type: "user", Dev: 33, Ino: 333}
+	ownerNS := target.NSRef{Type: "user", Dev: 44, Ino: 444}
+	thread := &target.Thread{Tid: 1, Tgid: 1, MntNS: mntNS, PIDNS: pidNS, UserNS: userNS}
+
+	MntNSThreads[mntNS] = []*target.Thread{thread}
+	PIDNSThreads[pidNS] = []*target.Thread{thread}
+	UserNSThreads[userNS] = []*target.Thread{thread}
+	MntNSInfo[mntNS] = []MountInfo{{MountPoint: "/host"}}
+	OwnerUserNSByNS[mntNS] = ownerNS
+	HostMntNS = target.NSRef{Type: "mnt", Dev: 55, Ino: 555}
+	HostPIDNS = target.NSRef{Type: "pid", Dev: 66, Ino: 666}
+	HostUserNS = target.NSRef{Type: "user", Dev: 77, Ino: 777}
+
+	ResetState()
+
+	if len(MntNSThreads) != 0 {
+		t.Fatalf("expected MntNSThreads to be cleared, got %#v", MntNSThreads)
+	}
+	if len(PIDNSThreads) != 0 {
+		t.Fatalf("expected PIDNSThreads to be cleared, got %#v", PIDNSThreads)
+	}
+	if len(UserNSThreads) != 0 {
+		t.Fatalf("expected UserNSThreads to be cleared, got %#v", UserNSThreads)
+	}
+	if len(MntNSInfo) != 0 {
+		t.Fatalf("expected MntNSInfo to be cleared, got %#v", MntNSInfo)
+	}
+	if len(OwnerUserNSByNS) != 0 {
+		t.Fatalf("expected OwnerUserNSByNS to be cleared, got %#v", OwnerUserNSByNS)
+	}
+	if HostMntNS != (target.NSRef{}) || HostPIDNS != (target.NSRef{}) || HostUserNS != (target.NSRef{}) {
+		t.Fatalf("expected host namespaces to reset to zero values, got mnt=%+v pid=%+v user=%+v", HostMntNS, HostPIDNS, HostUserNS)
+	}
+}
+
+func TestResetStateLeavesCollectorMapsWritable(t *testing.T) {
+	resetNamespaceCollectorState(t)
+
+	ResetState()
+
+	mntNS := target.NSRef{Type: "mnt", Dev: 11, Ino: 111}
+	pidNS := target.NSRef{Type: "pid", Dev: 22, Ino: 222}
+	userNS := target.NSRef{Type: "user", Dev: 33, Ino: 333}
+	ownerNS := target.NSRef{Type: "user", Dev: 44, Ino: 444}
+	thread := &target.Thread{Tid: 1, Tgid: 1, MntNS: mntNS, PIDNS: pidNS, UserNS: userNS}
+
+	MntNSThreads[mntNS] = []*target.Thread{thread}
+	PIDNSThreads[pidNS] = []*target.Thread{thread}
+	UserNSThreads[userNS] = []*target.Thread{thread}
+	MntNSInfo[mntNS] = []MountInfo{{MountPoint: "/host"}}
+	OwnerUserNSByNS[mntNS] = ownerNS
+
+	if got := ThreadsForNS(mntNS); len(got) != 1 || got[0] != thread {
+		t.Fatalf("expected reset MntNSThreads map to remain writable, got %#v", got)
+	}
+	if got := ThreadsForNS(pidNS); len(got) != 1 || got[0] != thread {
+		t.Fatalf("expected reset PIDNSThreads map to remain writable, got %#v", got)
+	}
+	if got := ThreadsForNS(userNS); len(got) != 1 || got[0] != thread {
+		t.Fatalf("expected reset UserNSThreads map to remain writable, got %#v", got)
+	}
+	if got := MntNSInfo[mntNS]; len(got) != 1 || got[0].MountPoint != "/host" {
+		t.Fatalf("expected reset MntNSInfo map to remain writable, got %#v", got)
+	}
+	if got := GetOwnerUserNS(mntNS); got != ownerNS {
+		t.Fatalf("expected reset OwnerUserNSByNS map to remain writable, got %+v", got)
+	}
+}
+
+func TestResetStateRemovesOldNamespaceLookupResults(t *testing.T) {
+	resetNamespaceCollectorState(t)
+
+	mntNS := target.NSRef{Type: "mnt", Dev: 11, Ino: 111}
+	pidNS := target.NSRef{Type: "pid", Dev: 22, Ino: 222}
+	userNS := target.NSRef{Type: "user", Dev: 33, Ino: 333}
+	thread := &target.Thread{Tid: 1, Tgid: 1, MntNS: mntNS, PIDNS: pidNS, UserNS: userNS}
+
+	MntNSThreads[mntNS] = []*target.Thread{thread}
+	PIDNSThreads[pidNS] = []*target.Thread{thread}
+	UserNSThreads[userNS] = []*target.Thread{thread}
+	OwnerUserNSByNS[mntNS] = userNS
+
+	ResetState()
+
+	if got := ThreadsForNS(mntNS); len(got) != 0 {
+		t.Fatalf("expected old mount namespace lookup to be cleared, got %#v", got)
+	}
+	if got := ThreadsForNS(pidNS); len(got) != 0 {
+		t.Fatalf("expected old pid namespace lookup to be cleared, got %#v", got)
+	}
+	if got := ThreadsForNS(userNS); len(got) != 0 {
+		t.Fatalf("expected old user namespace lookup to be cleared, got %#v", got)
+	}
+	if got := GetOwnerUserNS(mntNS); got != (target.NSRef{}) {
+		t.Fatalf("expected old owner user namespace lookup to be cleared, got %+v", got)
+	}
+}
+
+func TestResetStateDoesNotMutateExistingThreadValues(t *testing.T) {
+	resetNamespaceCollectorState(t)
+
+	mntNS := target.NSRef{Type: "mnt", Dev: 11, Ino: 111}
+	thread := &target.Thread{
+		Tid:   1,
+		Tgid:  1,
+		Comm:  "worker",
+		MntNS: mntNS,
+	}
+	MntNSThreads[mntNS] = []*target.Thread{thread}
+
+	ResetState()
+
+	if thread.Tid != 1 || thread.Tgid != 1 || thread.Comm != "worker" || thread.MntNS != mntNS {
+		t.Fatalf("expected ResetState not to mutate external thread value, got %#v", thread)
+	}
+}
+
+func TestCollectPackageHasNoLegacyContainerRuntimeDependency(t *testing.T) {
+	files := []string{
+		"namespace.go",
+		"capabilites.go",
+		"mount.go",
+		"seccomp.go",
+	}
+	for _, name := range files {
+		t.Run(name, func(t *testing.T) {
+			content, err := os.ReadFile(name)
+			if err != nil {
+				t.Fatalf("read %s: %v", name, err)
+			}
+			legacyRuntime := "dock" + "er"
+			if strings.Contains(string(content), legacyRuntime) || strings.Contains(string(content), strings.ToUpper(legacyRuntime[:1])+legacyRuntime[1:]) {
+				t.Fatalf("expected %s to contain no legacy container runtime dependency", name)
+			}
+		})
+	}
 }
 
 func TestClctHostNamespaceMatchesProcSelfNamespaceFiles(t *testing.T) {
@@ -245,32 +389,6 @@ func TestIsAcceptableNamespaceAccessError(t *testing.T) {
 		if got := isAcceptableNamespaceAccessError(tc.err); got != tc.want {
 			t.Fatalf("isAcceptableNamespaceAccessError(%v) = %t, want %t", tc.err, got, tc.want)
 		}
-	}
-}
-
-func TestParseNamespaceHelperOutput(t *testing.T) {
-	output := "mnt 4 4026534235\npid 4 4026531836\nuser 4 4026531837\n"
-
-	got, err := parseNamespaceHelperOutput(output)
-	if err != nil {
-		t.Fatalf("parseNamespaceHelperOutput() error = %v", err)
-	}
-
-	want := map[string]target.NSRef{
-		"mnt":  {Type: "mnt", Dev: 4, Ino: 4026534235},
-		"pid":  {Type: "pid", Dev: 4, Ino: 4026531836},
-		"user": {Type: "user", Dev: 4, Ino: 4026531837},
-	}
-	for key, ref := range want {
-		if got[key] != ref {
-			t.Fatalf("expected helper ref %s=%+v, got %+v", key, ref, got[key])
-		}
-	}
-}
-
-func TestParseNamespaceHelperOutputRejectsMalformedLine(t *testing.T) {
-	if _, err := parseNamespaceHelperOutput("pid 4\n"); err == nil {
-		t.Fatalf("expected malformed helper output to return error")
 	}
 }
 

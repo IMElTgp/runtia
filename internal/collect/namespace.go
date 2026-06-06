@@ -5,10 +5,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	"github.com/IMElTgp/container-runtime-analysis/internal/target"
 	"golang.org/x/sys/unix"
@@ -27,10 +25,16 @@ var (
 	HostMntNS, HostPIDNS, HostUserNS target.NSRef
 )
 
-const (
-	namespaceHelperImageEnv     = "RUNTIA_NAMESPACE_HELPER_IMAGE"
-	defaultNamespaceHelperImage = "alpine:latest"
-)
+func ResetState() {
+	MntNSThreads = make(map[target.NSRef][]*target.Thread)
+	PIDNSThreads = make(map[target.NSRef][]*target.Thread)
+	UserNSThreads = make(map[target.NSRef][]*target.Thread)
+	MntNSInfo = make(map[target.NSRef][]MountInfo)
+	OwnerUserNSByNS = make(map[target.NSRef]target.NSRef)
+	HostMntNS = target.NSRef{}
+	HostPIDNS = target.NSRef{}
+	HostUserNS = target.NSRef{}
+}
 
 // The following errors that unix.IoctlRetInt returns while getting owner user ns are acceptable
 func isAcceptableOwnerUserNSError(err error) bool {
@@ -47,42 +51,6 @@ func isAcceptableNamespaceAccessError(err error) bool {
 	return errors.Is(err, fs.ErrPermission) ||
 		errors.Is(err, unix.EPERM) ||
 		errors.Is(err, unix.EACCES)
-}
-
-func namespaceHelperImage() string {
-	if image := strings.TrimSpace(os.Getenv(namespaceHelperImageEnv)); image != "" {
-		return image
-	}
-	return defaultNamespaceHelperImage
-}
-
-func parseNamespaceHelperOutput(output string) (map[string]target.NSRef, error) {
-	refs := make(map[string]target.NSRef)
-
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		parts := strings.Fields(line)
-		if len(parts) != 3 {
-			return nil, fmt.Errorf("unexpected namespace helper output line %q", line)
-		}
-
-		dev, err := strconv.ParseUint(parts[1], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("parse helper namespace dev from %q: %w", line, err)
-		}
-		ino, err := strconv.ParseUint(parts[2], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("parse helper namespace ino from %q: %w", line, err)
-		}
-
-		refs[parts[0]] = target.NSRef{Type: parts[0], Dev: dev, Ino: ino}
-	}
-
-	return refs, nil
 }
 
 func recordThreadNamespaceRefs(thread *target.Thread, refs map[string]target.NSRef, ownerUserNSByType map[string]target.NSRef) {
@@ -104,37 +72,6 @@ func recordThreadNamespaceRefs(thread *target.Thread, refs map[string]target.NSR
 		thread.UserNS = userRef
 		UserNSThreads[userRef] = append(UserNSThreads[userRef], thread)
 	}
-}
-
-// collectNamespaceViaDockerHelper is designed to bypass permission denied issue
-func collectNamespaceViaDockerHelper(thread *target.Thread) error {
-	script := fmt.Sprintf(
-		"for ns in mnt pid user; do stat -Lc \"$ns %%d %%i\" /proc/%d/task/%d/ns/$ns; done",
-		thread.Tgid,
-		thread.Tid,
-	)
-	cmd := exec.Command(
-		"docker", "run", "--rm", "--privileged", "--pid", "host", "--network", "none",
-		"--security-opt", "label=disable",
-		namespaceHelperImage(),
-		"sh", "-c", script,
-	)
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("collect namespace via docker helper for tid=%d tgid=%d failed: %w: %s", thread.Tid, thread.Tgid, err, strings.TrimSpace(string(output)))
-	}
-
-	refs, err := parseNamespaceHelperOutput(string(output))
-	if err != nil {
-		return fmt.Errorf("parse namespace helper output for tid=%d tgid=%d failed: %w", thread.Tid, thread.Tgid, err)
-	}
-
-	unknownOwner := target.NSRef{Type: "unknown"}
-	recordThreadNamespaceRefs(thread, refs, map[string]target.NSRef{
-		"mnt": unknownOwner,
-		"pid": unknownOwner,
-	})
-	return nil
 }
 
 // getOwnerUserNS fetches a non-user namespace's belonging user ns and records that into OwnerUserNSByNS
@@ -171,9 +108,6 @@ func ClctNamespace(thread *target.Thread) error {
 	path := filepath.Join("/proc", strconv.Itoa(thread.Tgid), "task", strconv.Itoa(thread.Tid), "ns")
 	entries, err := os.ReadDir(path)
 	if err != nil {
-		if isAcceptableNamespaceAccessError(err) {
-			return collectNamespaceViaDockerHelper(thread)
-		}
 		return err
 	}
 
@@ -187,9 +121,6 @@ func ClctNamespace(thread *target.Thread) error {
 		nsPath := filepath.Join(path, e.Name())
 		nsfd, err := unix.Open(nsPath, unix.O_RDONLY|unix.O_CLOEXEC, 0)
 		if err != nil {
-			if isAcceptableNamespaceAccessError(err) {
-				return collectNamespaceViaDockerHelper(thread)
-			}
 			return err
 		}
 		// potential memory leak, but no better choices but to open file in a for loop

@@ -19,7 +19,7 @@ import (
 
 /**
  * rules:
- * 1. thread's user namespace is shared with the host 						=> Fatal (if User NS remapping is on)
+ * 1. thread's user namespace is shared with the host 						=> LowRisk
  * 2. thread's non-user namespace is shared with the host 					=> HighRisk
  * 3. non-main thread's user namespace is different from main thread 		=> HighRisk
  * 4. non-main thread's pid namespace is different from main thread 		=> HighRisk
@@ -29,19 +29,13 @@ import (
  */
 
 // checkUserNamespaceSharing checks rule 1: sharing user ns with the host
-func checkUserNamespaceSharing(thread model.ThreadSnapshot, containerID string) *model.Signal {
+func checkUserNamespaceSharing(thread model.ThreadSnapshot) *model.Signal {
 	userns := thread.UserNS
 	if userns.Dev == collect.HostUserNS.Dev && userns.Ino == collect.HostUserNS.Ino {
-		var riskLevel = Fatal
-		if !target.CheckUserNSRemapping(containerID) {
-			// no remapping, it's okay to have container user namespace the same as the host
-			riskLevel = Info
-		}
-
 		return &model.Signal{
 			Finding: model.Finding{
 				Category:  "namespace",
-				RiskLevel: riskLevel,
+				RiskLevel: LowRisk,
 				Title:     "Thread shares the host user namespace",
 				Summary:   fmt.Sprintf("Thread %d shares the host user namespace, so user-ID mappings, capabilities, and namespace ownership semantics can apply with host-level meaning.", thread.Tid),
 				Evidence: []string{
@@ -264,7 +258,7 @@ func (r *Rule) AnalyzeNamespaces() {
 	for i := range r.Snapshot.Threads {
 		thread := r.Snapshot.Threads[i]
 
-		r.Signals = appendSignalIfNonNil(r.Signals, checkUserNamespaceSharing(thread, r.Snapshot.ContainerID))
+		r.Signals = appendSignalIfNonNil(r.Signals, checkUserNamespaceSharing(thread))
 		r.Signals = appendSignalIfNonNil(r.Signals, checkPIDNamespaceSharing(thread))
 		r.Signals = appendSignalIfNonNil(r.Signals, checkMntNamespaceSharing(thread))
 		if mainThread, ok := r.Snapshot.Threads[thread.Tgid]; ok {
